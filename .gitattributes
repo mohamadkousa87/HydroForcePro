@@ -1,0 +1,18 @@
+# Normalize line endings
+* text=auto eol=lf
+
+# Windows-specific scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Unix shell scripts must stay LF
+gradlew text eol=lf
+
+# Binary files
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.keystore binary
+*.jks binary
