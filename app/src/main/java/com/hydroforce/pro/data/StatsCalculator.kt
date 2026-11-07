@@ -35,7 +35,7 @@ object StatsCalculator {
 
         fun totalFor(dayStart: Long): Int =
             logs.filter { it.timestamp >= dayStart && it.timestamp < dayStart + DAY_MS }
-                .sumOf { it.amountMl }
+                .sumOf { it.effectiveMl }
 
         // Oldest -> newest across the window (chart reads left to right in RTL too).
         val dayStats = (0 until days).map { i ->

@@ -18,11 +18,15 @@ object CsvExporter {
         val file = File(dir, "hydroforce_log.csv")
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         buildString {
-            append("date_time,amount_ml,source\n")
+            append("date_time,drink_type,amount_ml,effective_ml,source\n")
             logs.forEach { log ->
                 append(fmt.format(Date(log.timestamp)))
                 append(',')
+                append(DrinkType.fromName(log.drinkType).label)
+                append(',')
                 append(log.amountMl)
+                append(',')
+                append(log.effectiveMl)
                 append(',')
                 append(log.source)
                 append('\n')

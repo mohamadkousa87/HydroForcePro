@@ -3,8 +3,10 @@ package com.hydroforce.pro.alarm
 import android.content.Context
 import com.hydroforce.pro.data.AppDatabase
 import com.hydroforce.pro.data.CALL_POSTPONE_MINUTES
+import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.IntakeLog
+import com.hydroforce.pro.data.effectiveMlFor
 import com.hydroforce.pro.data.MAX_SNOOZES
 import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.RETRY_MINUTES
@@ -65,12 +67,20 @@ object HydrationManager {
     }
 
     /** Called only after ML Kit confirmed a cup/bottle in the live camera frame. */
-    suspend fun recordVerifiedDrink(context: Context, source: String) {
+    suspend fun recordVerifiedDrink(context: Context, source: String, drinkType: DrinkType = DrinkType.WATER) {
         val repo = SettingsRepository(context)
         val profile = repo.currentProfile()
         val now = System.currentTimeMillis()
-        AppDatabase.get(context).intakeDao()
-            .insert(IntakeLog(timestamp = now, amountMl = profile.cupSizeMl, source = source))
+        val amount = profile.cupSizeMl
+        AppDatabase.get(context).intakeDao().insert(
+            IntakeLog(
+                timestamp = now,
+                amountMl = amount,
+                source = source,
+                drinkType = drinkType.name,
+                effectiveMl = effectiveMlFor(amount, drinkType)
+            )
+        )
         repo.setLastDrink(now)
         repo.setSnoozeUsed(0)
         rescheduleFrom(context, now)

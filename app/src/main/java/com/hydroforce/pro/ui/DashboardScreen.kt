@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hydroforce.pro.alarm.HydrationManager
 import com.hydroforce.pro.data.AlarmState
+import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.ScheduleMath
@@ -74,9 +75,11 @@ fun DashboardScreen(
     onDrinkNow: () -> Unit,
     onSettings: () -> Unit,
     onMeetings: () -> Unit,
-    onStats: () -> Unit
+    onStats: () -> Unit,
+    selectedDrinkType: DrinkType,
+    onDrinkTypeSelected: (DrinkType) -> Unit
 ) {
-    val consumed = logs.sumOf { it.amountMl }
+    val consumed = logs.sumOf { it.effectiveMl }
     Column(
         Modifier
             .fillMaxSize()
@@ -91,6 +94,23 @@ fun DashboardScreen(
             PermissionsHealthCard(permissions, onPermissionsChanged)
             ProgressCard(consumed, result, logs.size)
             CountdownCard(profile, alarm, now, ringing, consumed >= result.targetMl)
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("🥤 ماذا ستشرب؟", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    DrinkTypePicker(selected = selectedDrinkType, onSelected = onDrinkTypeSelected)
+                    if (selectedDrinkType.hydrationFactor < 1f) {
+                        Text(
+                            "ملاحظة: يُحتسب ${(selectedDrinkType.hydrationFactor * 100).toInt()}% من الكمية كترطيب لهذا النوع.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
             Button(
                 onClick = onDrinkNow,
                 modifier = Modifier
@@ -101,7 +121,7 @@ fun DashboardScreen(
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("شربت ماء الآن 📷", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Text("شربت ${selectedDrinkType.label} الآن 📷", fontSize = 21.sp, fontWeight = FontWeight.Bold)
                     Text("(توثيق بالكاميرا وإعادة ضبط المؤقت)", fontSize = 13.sp)
                 }
             }
@@ -364,16 +384,14 @@ private fun TodayLogCard(logs: List<IntakeLog>) {
             } else {
                 logs.forEachIndexed { i, log ->
                     if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                    val type = DrinkType.fromName(log.drinkType)
+                    val via = if (log.source == HydrationManager.SOURCE_ALARM) "🔔 عند التنبيه" else "📷 توثيق استباقي"
                     Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (log.source == HydrationManager.SOURCE_ALARM) "🔔" else "📷", fontSize = 18.sp)
+                        Text(type.emoji, fontSize = 18.sp)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("+${log.amountMl} مل", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (log.source == HydrationManager.SOURCE_ALARM) "عند التنبيه" else "توثيق استباقي",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("${type.label} +${log.amountMl} مل", fontWeight = FontWeight.SemiBold)
+                            Text(via, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(fmt.format(Date(log.timestamp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

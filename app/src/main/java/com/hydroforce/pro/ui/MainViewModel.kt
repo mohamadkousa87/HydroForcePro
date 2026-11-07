@@ -10,6 +10,7 @@ import com.hydroforce.pro.data.AppDatabase
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.CsvExporter
+import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.ScheduleMath
@@ -119,11 +120,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val _pendingDrinkType = kotlinx.coroutines.flow.MutableStateFlow(DrinkType.WATER)
+    val pendingDrinkType: StateFlow<DrinkType> = _pendingDrinkType
+
+    fun setDrinkType(type: DrinkType) {
+        _pendingDrinkType.value = type
+    }
+
     /** Proactive "I drank now": only reachable after ML Kit verification. Resets the countdown from now. */
     fun onManualDrinkVerified(onDone: () -> Unit) {
         viewModelScope.launch {
-            HydrationManager.recordVerifiedDrink(getApplication(), HydrationManager.SOURCE_MANUAL)
+            HydrationManager.recordVerifiedDrink(getApplication(), HydrationManager.SOURCE_MANUAL, _pendingDrinkType.value)
             AlarmService.stop(getApplication())
+            _pendingDrinkType.value = DrinkType.WATER
             onDone()
         }
     }

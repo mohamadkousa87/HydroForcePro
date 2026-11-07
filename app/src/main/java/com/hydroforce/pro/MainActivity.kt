@@ -114,6 +114,7 @@ private fun HydroNavHost(vm: MainViewModel) {
         composable(Routes.DASHBOARD) {
             key(permRefresh) {
                 val permissions = rememberPermissionStatus(onResume = { vm.ensureScheduledAsync() })
+                val drinkType by vm.pendingDrinkType.collectAsStateWithLifecycle()
                 DashboardScreen(
                     profile = profile,
                     result = result,
@@ -126,7 +127,9 @@ private fun HydroNavHost(vm: MainViewModel) {
                     onDrinkNow = { nav.navigate(Routes.CAMERA) },
                     onSettings = { nav.navigate(Routes.SETTINGS) },
                     onMeetings = { nav.navigate(Routes.MEETINGS) },
-                    onStats = { nav.navigate(Routes.STATS) }
+                    onStats = { nav.navigate(Routes.STATS) },
+                    selectedDrinkType = drinkType,
+                    onDrinkTypeSelected = { vm.setDrinkType(it) }
                 )
             }
         }

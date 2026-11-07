@@ -28,7 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,9 +44,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hydroforce.pro.camera.CameraVerificationScreen
 import com.hydroforce.pro.data.AlarmState
+import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.MAX_SNOOZES
 import com.hydroforce.pro.data.SNOOZE_OPTIONS
 import com.hydroforce.pro.data.SettingsRepository
+import com.hydroforce.pro.ui.DrinkTypePicker
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroTheme
 import com.hydroforce.pro.ui.HydroWarn
@@ -103,6 +108,7 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
     val discreetLive by AlarmService.discreet.collectAsState()
     val discreet = if (ringing) discreetLive else initialDiscreet
     val snoozesLeft = (MAX_SNOOZES - alarmState.snoozeUsed).coerceAtLeast(0)
+    var drinkType by remember { mutableStateOf(DrinkType.WATER) }
 
     Column(
         Modifier
@@ -144,11 +150,16 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
             Spacer(Modifier.height(12.dp))
         }
 
+        Text("🥤 ماذا تشرب الآن؟", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        DrinkTypePicker(selected = drinkType, onSelected = { drinkType = it })
+        Spacer(Modifier.height(12.dp))
+
         CameraVerificationScreen(
             title = "أثبت أنك تشرب الآن",
             onVerified = {
                 scope.launch {
-                    HydrationManager.recordVerifiedDrink(context, HydrationManager.SOURCE_ALARM)
+                    HydrationManager.recordVerifiedDrink(context, HydrationManager.SOURCE_ALARM, drinkType)
                     AlarmService.stop(context)
                     onDone()
                 }
