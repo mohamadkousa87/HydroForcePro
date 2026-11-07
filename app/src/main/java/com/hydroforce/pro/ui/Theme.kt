@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.ThemeMode
 
@@ -90,13 +91,18 @@ fun HydroTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository(context) }
     val mode by repo.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
+    val language by repo.language.collectAsStateWithLifecycle(initialValue = Language.AR)
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
     }
+    val direction = if (language == Language.EN) LayoutDirection.Ltr else LayoutDirection.Rtl
     MaterialTheme(colorScheme = if (dark) darkColors else lightColors, typography = typography) {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        CompositionLocalProvider(
+            LocalLayoutDirection provides direction,
+            LocalLanguage provides language
+        ) {
             content()
         }
     }

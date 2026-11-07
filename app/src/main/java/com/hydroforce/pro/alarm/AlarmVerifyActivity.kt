@@ -52,6 +52,8 @@ import com.hydroforce.pro.ui.DrinkTypePicker
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroTheme
 import com.hydroforce.pro.ui.HydroWarn
+import com.hydroforce.pro.ui.LocalLanguage
+import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.launch
 
 /**
@@ -109,6 +111,7 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
     val discreet = if (ringing) discreetLive else initialDiscreet
     val snoozesLeft = (MAX_SNOOZES - alarmState.snoozeUsed).coerceAtLeast(0)
     var drinkType by remember { mutableStateOf(DrinkType.WATER) }
+    val lang = LocalLanguage.current
 
     Column(
         Modifier
@@ -121,14 +124,14 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
     ) {
         Text("💧", fontSize = 56.sp)
         Text(
-            "حان وقت شرب الماء!",
+            tr("حان وقت شرب الماء!", "Time to drink water!"),
             color = Color.White,
             style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            if (discreet) "وضع العمل الهادئ 💼" else "وضع المُلزِم الكامل 🔔",
+            if (discreet) tr("وضع العمل الهادئ 💼", "Quiet work mode 💼") else tr("وضع المُلزِم الكامل 🔔", "Full enforcer mode 🔔"),
             color = Color.White,
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
@@ -145,18 +148,18 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.18f)),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text(if (muted) "🔇 تم كتم الصوت والاهتزاز" else "🔇 كتم الصوت بلمسة (اجتماع)", color = Color.White)
+                Text(if (muted) tr("🔇 تم كتم الصوت والاهتزاز", "🔇 Muted sound & vibration") else tr("🔇 كتم الصوت بلمسة (اجتماع)", "🔇 Mute (meeting)"), color = Color.White)
             }
             Spacer(Modifier.height(12.dp))
         }
 
-        Text("🥤 ماذا تشرب الآن؟", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(tr("🥤 ماذا تشرب الآن؟", "🥤 What are you drinking?"), color = Color.White, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         DrinkTypePicker(selected = drinkType, onSelected = { drinkType = it })
         Spacer(Modifier.height(12.dp))
 
         CameraVerificationScreen(
-            title = "أثبت أنك تشرب الآن",
+            title = tr("أثبت أنك تشرب الآن", "Prove you're drinking now"),
             onVerified = {
                 scope.launch {
                     HydrationManager.recordVerifiedDrink(context, HydrationManager.SOURCE_ALARM, drinkType)
@@ -170,7 +173,7 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
 
         if (snoozesLeft > 0) {
             Text(
-                "⏰ تأجيل التنبيه — متبقٍ $snoozesLeft من $MAX_SNOOZES",
+                tr("⏰ تأجيل التنبيه — متبقٍ $snoozesLeft من $MAX_SNOOZES", "⏰ Snooze — $snoozesLeft of $MAX_SNOOZES left"),
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold
             )
@@ -185,7 +188,7 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
                             scope.launch {
                                 if (HydrationManager.snooze(context, minutes)) {
                                     AlarmService.stop(context)
-                                    Toast.makeText(context, "تم تأجيل التنبيه $minutes دقائق", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr(lang, "تم تأجيل التنبيه $minutes دقائق", "Reminder postponed $minutes min"), Toast.LENGTH_SHORT).show()
                                     onDone()
                                 }
                             }
@@ -195,13 +198,13 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
                             .height(54.dp),
                         shape = RoundedCornerShape(18.dp)
                     ) {
-                        Text("⏰ $minutes دقائق", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(tr("⏰ $minutes دقائق", "⏰ $minutes min"), color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         } else {
             Text(
-                "⛔ استُنفدت مرات التأجيل — التوثيق بالكاميرا إلزامي",
+                tr("⛔ استُنفدت مرات التأجيل — التوثيق بالكاميرا إلزامي", "⛔ No snoozes left — camera verification is required"),
                 color = Color.White,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()

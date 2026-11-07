@@ -1,15 +1,26 @@
 package com.hydroforce.pro.data
 
-enum class Gender(val label: String) {
-    MALE("ذكر"),
-    FEMALE("أنثى")
+enum class Gender(val label: String, val labelEn: String) {
+    MALE("ذكر", "Male"),
+    FEMALE("أنثى", "Female");
+
+    fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
 }
 
-enum class ActivityLevel(val label: String, val description: String, val bonusMl: Int) {
-    SEDENTARY("خامل", "عمل مكتبي وحركة قليلة", 0),
-    LIGHT("خفيف", "مشي أو تمارين خفيفة 1-3 أيام", 300),
-    MODERATE("متوسط", "تمارين متوسطة 3-5 أيام", 500),
-    HIGH("عالٍ / جيم", "تمارين شاقة أو جيم يومي", 800)
+enum class ActivityLevel(
+    val label: String,
+    val labelEn: String,
+    val description: String,
+    val descriptionEn: String,
+    val bonusMl: Int
+) {
+    SEDENTARY("خامل", "Sedentary", "عمل مكتبي وحركة قليلة", "Desk work, little movement", 0),
+    LIGHT("خفيف", "Light", "مشي أو تمارين خفيفة 1-3 أيام", "Walking or light exercise 1-3 days", 300),
+    MODERATE("متوسط", "Moderate", "تمارين متوسطة 3-5 أيام", "Moderate exercise 3-5 days", 500),
+    HIGH("عالٍ / جيم", "High / Gym", "تمارين شاقة أو جيم يومي", "Hard training or daily gym", 800);
+
+    fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
+    fun description(lang: Language): String = if (lang == Language.EN) descriptionEn else description
 }
 
 /** Times are stored as minutes-of-day (0..1439). */

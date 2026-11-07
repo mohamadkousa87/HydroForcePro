@@ -51,6 +51,7 @@ import com.hydroforce.pro.data.CUP_SIZES
 import com.hydroforce.pro.data.Gender
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
+import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.data.formatClock
 import com.hydroforce.pro.data.formatDuration
@@ -103,6 +104,8 @@ fun ProfileScreen(
         workEndMinutes = workEnd
     )
     val result = HydrationCalculator.calculate(draft)
+    val lang = LocalLanguage.current
+    val ml = tr("مل", "ml")
 
     Column(
         Modifier
@@ -115,48 +118,54 @@ fun ProfileScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
-                TextButton(onClick = onBack) { Text("→ رجوع") }
+                TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
             }
             Text(
-                if (isOnboarding) "مرحباً بك في هايدرو فورس 💧" else "الملف الطبي والجدول",
+                if (isOnboarding) tr("مرحباً بك في هايدرو فورس 💧", "Welcome to HydroForce 💧") else tr("الملف الطبي والجدول", "Medical profile & schedule"),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
         if (isOnboarding) {
             Text(
-                "أدخل بياناتك لحساب احتياجك الطبي اليومي من الماء وتوزيع التنبيهات على ساعات يقظتك.",
+                tr(
+                    "أدخل بياناتك لحساب احتياجك الطبي اليومي من الماء وتوزيع التنبيهات على ساعات يقظتك.",
+                    "Enter your details to compute your daily medical water need and spread reminders across your waking hours."
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        Section("🧬 البيانات الحيوية") {
-            Text("الجنس", style = MaterialTheme.typography.labelLarge)
+        Section(tr("🧬 البيانات الحيوية", "🧬 Vital data")) {
+            Text(tr("الجنس", "Gender"), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Gender.entries.forEach {
                     FilterChip(
                         selected = gender == it,
                         onClick = { gender = it },
-                        label = { Text(if (it == Gender.MALE) "👨 ${it.label}" else "👩 ${it.label}") }
+                        label = { Text(if (it == Gender.MALE) "👨 ${it.label(lang)}" else "👩 ${it.label(lang)}") }
                     )
                 }
             }
-            NumberField("العمر (سنة)", ageText, ageError) { ageText = it }
+            NumberField(tr("العمر (سنة)", "Age (years)"), ageText, ageError) { ageText = it }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NumberField("الوزن (كغ)", weightText, weightError, Modifier.weight(1f), decimal = true) { weightText = it }
-                NumberField("الطول (سم)", heightText, heightError, Modifier.weight(1f)) { heightText = it }
+                NumberField(tr("الوزن (كغ)", "Weight (kg)"), weightText, weightError, Modifier.weight(1f), decimal = true) { weightText = it }
+                NumberField(tr("الطول (سم)", "Height (cm)"), heightText, heightError, Modifier.weight(1f)) { heightText = it }
             }
             if (!weightError && !heightError) {
                 val bmi = HydrationCalculator.bmi(draft)
                 Text(
-                    "مؤشر كتلة الجسم (BMI): ${String.format(Locale.US, "%.1f", bmi)} — ${bmiLabel(bmi)}",
+                    tr(
+                        "مؤشر كتلة الجسم (BMI): ${String.format(Locale.US, "%.1f", bmi)} — ${bmiLabel(bmi, lang)}",
+                        "BMI: ${String.format(Locale.US, "%.1f", bmi)} — ${bmiLabel(bmi, lang)}"
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
 
-        Section("🏃 مستوى النشاط البدني") {
+        Section(tr("🏃 مستوى النشاط البدني", "🏃 Physical activity level")) {
             ActivityLevel.entries.forEach { level ->
                 Row(
                     Modifier
@@ -169,30 +178,33 @@ fun ProfileScreen(
                 ) {
                     RadioButton(selected = activity == level, onClick = { activity = level })
                     Column(Modifier.weight(1f)) {
-                        Text(level.label, fontWeight = FontWeight.SemiBold)
-                        Text(level.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(level.label(lang), fontWeight = FontWeight.SemiBold)
+                        Text(level.description(lang), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text("+${level.bonusMl} مل", color = HydroBlue, fontWeight = FontWeight.SemiBold)
+                    Text("+${level.bonusMl} $ml", color = HydroBlue, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
-        Section("🥤 حجم الكأس / العبوة المعتادة") {
+        Section(tr("🥤 حجم الكأس / العبوة المعتادة", "🥤 Usual cup / bottle size")) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CUP_SIZES.forEach {
-                    FilterChip(selected = cup == it, onClick = { cup = it }, label = { Text("$it مل") })
+                    FilterChip(selected = cup == it, onClick = { cup = it }, label = { Text("$it $ml") })
                 }
             }
         }
 
-        Section("🕒 الجدول اليومي") {
-            TimeRow("☀️ وقت الاستيقاظ", wake) { wake = it }
-            TimeRow("🌙 وقت النوم", sleep) { sleep = it }
+        Section(tr("🕒 الجدول اليومي", "🕒 Daily schedule")) {
+            TimeRow(tr("☀️ وقت الاستيقاظ", "☀️ Wake-up time"), wake) { wake = it }
+            TimeRow(tr("🌙 وقت النوم", "🌙 Bedtime"), sleep) { sleep = it }
             if (sleepError) {
-                Text("وقت النوم يجب أن يختلف عن وقت الاستيقاظ", color = MaterialTheme.colorScheme.error)
+                Text(tr("وقت النوم يجب أن يختلف عن وقت الاستيقاظ", "Bedtime must differ from wake-up time"), color = MaterialTheme.colorScheme.error)
             } else {
                 Text(
-                    "ساعات اليقظة: ${formatDuration(result.awakeMinutes)} — لا تنبيهات إطلاقاً أثناء النوم 😴",
+                    tr(
+                        "ساعات اليقظة: ${formatDuration(result.awakeMinutes)} — لا تنبيهات إطلاقاً أثناء النوم 😴",
+                        "Waking hours: ${formatDuration(result.awakeMinutes)} — no reminders at all during sleep 😴"
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -200,9 +212,12 @@ fun ProfileScreen(
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("💼 وضع العمل الهادئ", fontWeight = FontWeight.SemiBold)
+                    Text(tr("💼 وضع العمل الهادئ", "💼 Quiet work mode"), fontWeight = FontWeight.SemiBold)
                     Text(
-                        "اهتزاز ونغمة خفيفة مع زر كتم خلال ساعات العمل — والتوثيق بالكاميرا يبقى إلزامياً",
+                        tr(
+                            "اهتزاز ونغمة خفيفة مع زر كتم خلال ساعات العمل — والتوثيق بالكاميرا يبقى إلزامياً",
+                            "Vibration and a soft chime with a mute button during work hours — camera verification stays mandatory"
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -210,12 +225,12 @@ fun ProfileScreen(
                 Switch(checked = workEnabled, onCheckedChange = { workEnabled = it })
             }
             if (workEnabled) {
-                TimeRow("بداية العمل", workStart) { workStart = it }
-                TimeRow("نهاية العمل", workEnd) { workEnd = it }
+                TimeRow(tr("بداية العمل", "Work start"), workStart) { workStart = it }
+                TimeRow(tr("نهاية العمل", "Work end"), workEnd) { workEnd = it }
             }
         }
 
-        ResultCard(result, cup)
+        ResultCard(result, cup, title = tr("📋 هدفك الطبي اليومي", "📋 Your daily medical goal"))
 
         if (!isOnboarding) {
             ThemeModeSection()
@@ -231,17 +246,17 @@ fun ProfileScreen(
                 .height(56.dp),
             shape = RoundedCornerShape(18.dp)
         ) {
-            Text(if (isOnboarding) "ابدأ الالتزام بالترطيب 🚀" else "حفظ وإعادة جدولة التنبيهات ✅")
+            Text(if (isOnboarding) tr("ابدأ الالتزام بالترطيب 🚀", "Start staying hydrated 🚀") else tr("حفظ وإعادة جدولة التنبيهات ✅", "Save & reschedule reminders ✅"))
         }
         Spacer(Modifier.height(24.dp))
     }
 }
 
-private fun bmiLabel(bmi: Float) = when {
-    bmi < 18.5f -> "نقص وزن"
-    bmi < 25f -> "طبيعي"
-    bmi < 30f -> "زيادة وزن"
-    else -> "سمنة"
+private fun bmiLabel(bmi: Float, lang: Language) = when {
+    bmi < 18.5f -> if (lang == Language.EN) "Underweight" else "نقص وزن"
+    bmi < 25f -> if (lang == Language.EN) "Normal" else "طبيعي"
+    bmi < 30f -> if (lang == Language.EN) "Overweight" else "زيادة وزن"
+    else -> if (lang == Language.EN) "Obese" else "سمنة"
 }
 
 @Composable
@@ -307,17 +322,21 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            val ml = tr("مل", "ml")
             Text(
-                "${formatMl(result.targetMl)} مل يومياً",
+                tr("${formatMl(result.targetMl)} مل يومياً", "${formatMl(result.targetMl)} ml per day"),
                 style = MaterialTheme.typography.headlineMedium,
                 color = HydroBlue
             )
             Text(
-                "= ${result.cupsNeeded} كأس × $cup مل • تنبيه كل ${formatDuration(result.intervalMinutes)}",
+                tr(
+                    "= ${result.cupsNeeded} كأس × $cup مل • تنبيه كل ${formatDuration(result.intervalMinutes)}",
+                    "= ${result.cupsNeeded} cups × $cup ml • reminder every ${formatDuration(result.intervalMinutes)}"
+                ),
                 color = MaterialTheme.colorScheme.onSurface
             )
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            Text("لماذا هذا الهدف لجسمك؟", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(tr("لماذا هذا الهدف لجسمك؟", "Why this goal for your body?"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             result.items.forEach { item ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
@@ -326,9 +345,9 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (item.ml > 0) "+${formatMl(item.ml)} مل" else "0 مل",
+                        if (item.ml > 0) "+${formatMl(item.ml)} $ml" else "0 $ml",
                         fontWeight = FontWeight.Bold,
-                        color = if (item.ml > 0) HydroBlue else Color.Gray
+                        color = if (item.ml > 0) HydroBlue else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

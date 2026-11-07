@@ -24,11 +24,13 @@ import androidx.lifecycle.lifecycleScope
 import com.hydroforce.pro.HydroApp
 import com.hydroforce.pro.R
 import com.hydroforce.pro.data.CALL_POSTPONE_MINUTES
+import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.RETRY_MINUTES
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.covering
+import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +74,7 @@ class AlarmService : LifecycleService() {
         }
     }
 
+    private var lang: Language = Language.AR
     private var player: MediaPlayer? = null
     private var chime: Ringtone? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -97,6 +100,8 @@ class AlarmService : LifecycleService() {
         val provisional = buildNotification(discreet = _discreet.value)
         goForeground(provisional)
         lifecycleScope.launch {
+            val repo = SettingsRepository(applicationContext)
+            lang = repo.currentLanguage()
             // If the user is on a phone/VoIP call, don't ring — postpone and leave them in peace.
             if (isBusyOnCall()) {
                 HydrationManager.schedulePostpone(applicationContext)
@@ -104,7 +109,6 @@ class AlarmService : LifecycleService() {
                 stopEverything()
                 return@launch
             }
-            val repo = SettingsRepository(applicationContext)
             // If a scheduled meeting is in progress, postpone until it ends instead of ringing.
             val meeting = repo.currentMeetings().covering(System.currentTimeMillis())
             if (meeting != null) {
@@ -151,13 +155,13 @@ class AlarmService : LifecycleService() {
     private fun buildNotification(discreet: Boolean): Notification {
         val pi = alarmIntent(discreet)
         val text = if (discreet) {
-            "وضع العمل الهادئ 💼 — وجّه الكاميرا نحو كأس الماء لإيقاف التنبيه"
+            tr(lang, "وضع العمل الهادئ 💼 — وجّه الكاميرا نحو كأس الماء لإيقاف التنبيه", "Quiet work mode 💼 — point the camera at your water to stop the alarm")
         } else {
-            "وضع المُلزِم الكامل 🔔 — لن يتوقف التنبيه إلا بتوثيق الكأس بالكاميرا"
+            tr(lang, "وضع المُلزِم الكامل 🔔 — لن يتوقف التنبيه إلا بتوثيق الكأس بالكاميرا", "Full enforcer mode 🔔 — the alarm stops only when you verify your drink by camera")
         }
         return NotificationCompat.Builder(this, HydroApp.CHANNEL_ALARM)
             .setSmallIcon(R.drawable.ic_stat_drop)
-            .setContentTitle("حان وقت شرب الماء 💧")
+            .setContentTitle(tr(lang, "حان وقت شرب الماء 💧", "Time to drink water 💧"))
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -272,8 +276,8 @@ class AlarmService : LifecycleService() {
     private fun notifyPostponedForCall() {
         val note = NotificationCompat.Builder(this, HydroApp.CHANNEL_MISSED)
             .setSmallIcon(R.drawable.ic_stat_drop)
-            .setContentTitle("تم تأجيل تنبيه الماء 📞")
-            .setContentText("أنت في مكالمة الآن — سيعاد التنبيه بعد $CALL_POSTPONE_MINUTES دقائق.")
+            .setContentTitle(tr(lang, "تم تأجيل تنبيه الماء 📞", "Water reminder postponed 📞"))
+            .setContentText(tr(lang, "أنت في مكالمة الآن — سيعاد التنبيه بعد $CALL_POSTPONE_MINUTES دقائق.", "You're on a call — reminder returns in $CALL_POSTPONE_MINUTES min."))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(alarmIntent(_discreet.value))
             .setAutoCancel(true)
@@ -282,11 +286,11 @@ class AlarmService : LifecycleService() {
     }
 
     private fun notifyPostponedForMeeting(meeting: Meeting) {
-        val label = meeting.title.ifBlank { "اجتماعك" }
+        val label = meeting.title.ifBlank { tr(lang, "اجتماعك", "your meeting") }
         val note = NotificationCompat.Builder(this, HydroApp.CHANNEL_MISSED)
             .setSmallIcon(R.drawable.ic_stat_drop)
-            .setContentTitle("تم تأجيل تنبيه الماء 📅")
-            .setContentText("أنت في «$label» الآن — سيعاد التنبيه بعد انتهائه.")
+            .setContentTitle(tr(lang, "تم تأجيل تنبيه الماء 📅", "Water reminder postponed 📅"))
+            .setContentText(tr(lang, "أنت في «$label» الآن — سيعاد التنبيه بعد انتهائه.", "You're in \"$label\" now — reminder returns after it ends."))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(alarmIntent(_discreet.value))
             .setAutoCancel(true)
@@ -299,8 +303,8 @@ class AlarmService : LifecycleService() {
             HydrationManager.scheduleRetry(applicationContext)
             val missed = NotificationCompat.Builder(this@AlarmService, HydroApp.CHANNEL_MISSED)
                 .setSmallIcon(R.drawable.ic_stat_drop)
-                .setContentTitle("فاتك تنبيه شرب الماء ⚠️")
-                .setContentText("سيعاد التنبيه بعد $RETRY_MINUTES دقائق. اضغط لتوثيق الشرب الآن بالكاميرا.")
+                .setContentTitle(tr(lang, "فاتك تنبيه شرب الماء ⚠️", "You missed a water reminder ⚠️"))
+                .setContentText(tr(lang, "سيعاد التنبيه بعد $RETRY_MINUTES دقائق. اضغط لتوثيق الشرب الآن بالكاميرا.", "Reminder returns in $RETRY_MINUTES min. Tap to verify drinking now by camera."))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(alarmIntent(_discreet.value))
                 .setAutoCancel(true)

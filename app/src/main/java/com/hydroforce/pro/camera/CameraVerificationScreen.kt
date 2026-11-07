@@ -60,6 +60,8 @@ import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.hydroforce.pro.ui.HydroDanger
 import com.hydroforce.pro.ui.HydroMint
+import com.hydroforce.pro.ui.LocalLanguage
+import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.delay
 
 /** Labels (lower-case) that count as proof of a cup / glass / bottle of water. */
@@ -115,7 +117,7 @@ fun CameraVerificationScreen(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "وجّه الكاميرا الحية نحو كأس أو عبوة الماء ثم اضغط التقاط",
+            tr("وجّه الكاميرا الحية نحو كأس أو عبوة الماء ثم اضغط التقاط", "Point the live camera at your cup or bottle, then tap Capture"),
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.8f),
             textAlign = TextAlign.Center
@@ -135,13 +137,13 @@ fun CameraVerificationScreen(
                 Text("📷", fontSize = 48.sp)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "يجب منح إذن الكاميرا لتوثيق شرب الماء",
+                    tr("يجب منح إذن الكاميرا لتوثيق شرب الماء", "Camera permission is required to verify drinking"),
                     color = Color.White,
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }) {
-                    Text("منح إذن الكاميرا")
+                    Text(tr("منح إذن الكاميرا", "Grant camera permission"))
                 }
             }
         }
@@ -152,6 +154,7 @@ fun CameraVerificationScreen(
 private fun CameraContent(onVerified: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val lang = LocalLanguage.current
     var state by remember { mutableStateOf<VerifyState>(VerifyState.Ready) }
 
     val previewView = remember {
@@ -187,7 +190,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                     imageCapture
                 )
             } catch (e: Exception) {
-                state = VerifyState.Error("تعذر تشغيل الكاميرا: ${e.message ?: ""}")
+                state = VerifyState.Error(tr(lang, "تعذر تشغيل الكاميرا: ${e.message ?: ""}", "Couldn't start the camera: ${e.message ?: ""}"))
             }
         }, ContextCompat.getMainExecutor(context))
         onDispose {
@@ -222,7 +225,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                         image.close()
                     }
                     if (bitmap == null) {
-                        state = VerifyState.Error("تعذرت قراءة الصورة، حاول مرة أخرى")
+                        state = VerifyState.Error(tr(lang, "تعذرت قراءة الصورة، حاول مرة أخرى", "Couldn't read the image, try again"))
                         return
                     }
                     labeler.process(InputImage.fromBitmap(bitmap, rotation))
@@ -236,7 +239,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                             }
                         }
                         .addOnFailureListener {
-                            state = VerifyState.Error("فشل التحليل: ${it.message ?: ""}")
+                            state = VerifyState.Error(tr(lang, "فشل التحليل: ${it.message ?: ""}", "Analysis failed: ${it.message ?: ""}"))
                         }
                         .addOnCompleteListener {
                             // Discard the in-memory frame; nothing is ever persisted.
@@ -245,7 +248,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    state = VerifyState.Error("فشل الالتقاط: ${exception.message ?: ""}")
+                    state = VerifyState.Error(tr(lang, "فشل الالتقاط: ${exception.message ?: ""}", "Capture failed: ${exception.message ?: ""}"))
                 }
             }
         )
@@ -279,7 +282,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color.White)
                     Spacer(Modifier.height(12.dp))
-                    Text("جارٍ التحقق بالذكاء الاصطناعي...", color = Color.White)
+                    Text(tr("جارٍ التحقق بالذكاء الاصطناعي...", "Verifying with AI..."), color = Color.White)
                 }
             }
         }
@@ -306,7 +309,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                     Text("✓", color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("تم التحقق! أحسنت 💧", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                Text(tr("تم التحقق! أحسنت 💧", "Verified! Well done 💧"), color = Color.White, style = MaterialTheme.typography.titleLarge)
                 Text("(${verified?.matched ?: ""})", color = Color.White.copy(alpha = 0.7f))
             }
         }
@@ -316,7 +319,8 @@ private fun CameraContent(onVerified: () -> Unit) {
 
     when (val s = state) {
         is VerifyState.Rejected -> MessageBox(
-            REJECT_MESSAGE + if (s.seen.isNotEmpty()) "\n(تم رصد: ${s.seen.joinToString("، ")})" else ""
+            tr("لم يتم رصد كأس أو عبوة ماء! يرجى توجيه الكاميرا بوضوح", "No cup or water bottle detected! Aim the camera clearly") +
+                if (s.seen.isNotEmpty()) tr("\n(تم رصد: ${s.seen.joinToString("، ")})", "\n(detected: ${s.seen.joinToString(", ")})") else ""
         )
         is VerifyState.Error -> MessageBox(s.message)
         else -> {}
@@ -335,8 +339,8 @@ private fun CameraContent(onVerified: () -> Unit) {
     ) {
         Text(
             when (state) {
-                is VerifyState.Rejected, is VerifyState.Error -> "📸 إعادة الالتقاط"
-                else -> "📸 التقاط والتحقق"
+                is VerifyState.Rejected, is VerifyState.Error -> tr("📸 إعادة الالتقاط", "📸 Retake")
+                else -> tr("📸 التقاط والتحقق", "📸 Capture & verify")
             },
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold

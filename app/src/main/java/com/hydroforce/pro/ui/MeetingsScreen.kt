@@ -73,8 +73,10 @@ fun MeetingsScreen(
     val endMillis = millisFor(endMin)
     val valid = endMillis > startMillis && endMillis > System.currentTimeMillis()
 
-    val dateFmt = remember { SimpleDateFormat("EEEE d MMMM yyyy", Locale("ar")) }
-    val timeFmt = remember { SimpleDateFormat("hh:mm a", Locale("ar")) }
+    val en = LocalLanguage.current == com.hydroforce.pro.data.Language.EN
+    val loc = if (en) Locale.ENGLISH else Locale("ar")
+    val dateFmt = remember(en) { SimpleDateFormat("EEEE d MMMM yyyy", loc) }
+    val timeFmt = remember(en) { SimpleDateFormat("hh:mm a", loc) }
 
     Column(
         Modifier
@@ -86,11 +88,14 @@ fun MeetingsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("→ رجوع") }
-            Text("📅 جدولة الاجتماعات", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
+            TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
+            Text(tr("📅 جدولة الاجتماعات", "📅 Meeting scheduler"), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
         }
         Text(
-            "أضف أوقات اجتماعاتك فتُؤجَّل التنبيهات خلالها وتُستأنف بعد انتهائها مباشرةً.",
+            tr(
+                "أضف أوقات اجتماعاتك فتُؤجَّل التنبيهات خلالها وتُستأنف بعد انتهائها مباشرةً.",
+                "Add your meeting times and reminders are postponed during them, resuming right after."
+            ),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
@@ -101,34 +106,34 @@ fun MeetingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("اجتماع جديد", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(tr("اجتماع جديد", "New meeting"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it.take(40) },
-                    label = { Text("العنوان (اختياري)") },
+                    label = { Text(tr("العنوان (اختياري)", "Title (optional)")) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
-                PickerRow("📆 التاريخ", dateFmt.format(Date(millisFor(startMin)))) {
+                PickerRow(tr("📆 التاريخ", "📆 Date"), dateFmt.format(Date(millisFor(startMin)))) {
                     DatePickerDialog(
                         context,
                         { _, y, m, d -> year = y; month = m; day = d },
                         year, month, day
                     ).show()
                 }
-                PickerRow("⏰ من الساعة", timeFmt.format(Date(millisFor(startMin)))) {
+                PickerRow(tr("⏰ من الساعة", "⏰ From"), timeFmt.format(Date(millisFor(startMin)))) {
                     TimePickerDialog(context, { _, h, m ->
                         startMin = h * 60 + m
                         if (endMin <= startMin) endMin = (startMin + 30).coerceAtMost(23 * 60 + 59)
                     }, startMin / 60, startMin % 60, false).show()
                 }
-                PickerRow("⏱️ إلى الساعة", timeFmt.format(Date(millisFor(endMin)))) {
+                PickerRow(tr("⏱️ إلى الساعة", "⏱️ To"), timeFmt.format(Date(millisFor(endMin)))) {
                     TimePickerDialog(context, { _, h, m -> endMin = h * 60 + m }, endMin / 60, endMin % 60, false).show()
                 }
                 if (!valid) {
                     Text(
-                        "تأكد أن وقت الانتهاء بعد البداية وفي المستقبل.",
+                        tr("تأكد أن وقت الانتهاء بعد البداية وفي المستقبل.", "Make sure the end time is after the start and in the future."),
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 13.sp
                     )
@@ -144,7 +149,7 @@ fun MeetingsScreen(
                         .height(52.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("➕ إضافة الاجتماع")
+                    Text(tr("➕ إضافة الاجتماع", "➕ Add meeting"))
                 }
             }
         }
@@ -156,17 +161,17 @@ fun MeetingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp)) {
-                Text("الاجتماعات القادمة", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(tr("الاجتماعات القادمة", "Upcoming meetings"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(6.dp))
                 if (meetings.isEmpty()) {
-                    Text("لا توجد اجتماعات مجدولة.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("لا توجد اجتماعات مجدولة.", "No meetings scheduled."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     meetings.forEachIndexed { i, m ->
                         if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                         Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    m.title.ifBlank { "اجتماع" },
+                                    m.title.ifBlank { tr("اجتماع", "Meeting") },
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -179,7 +184,7 @@ fun MeetingsScreen(
                                 )
                             }
                             TextButton(onClick = { onRemove(m.id) }) {
-                                Text("حذف", color = HydroDanger)
+                                Text(tr("حذف", "Delete"), color = HydroDanger)
                             }
                         }
                     }

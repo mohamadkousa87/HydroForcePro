@@ -38,6 +38,7 @@ class SettingsRepository(context: Context) {
         val LAST_DRINK = longPreferencesKey("last_drink")
         val MEETINGS = stringPreferencesKey("meetings")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val LANGUAGE = stringPreferencesKey("language")
     }
 
     val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
@@ -46,6 +47,16 @@ class SettingsRepository(context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         store.edit { it[Keys.THEME_MODE] = mode.name }
+    }
+
+    val language: Flow<Language> = store.data.map { prefs ->
+        prefs[Keys.LANGUAGE]?.let { runCatching { Language.valueOf(it) }.getOrNull() } ?: Language.AR
+    }
+
+    suspend fun currentLanguage(): Language = language.first()
+
+    suspend fun setLanguage(lang: Language) {
+        store.edit { it[Keys.LANGUAGE] = lang.name }
     }
 
     val onboarded: Flow<Boolean> = store.data.map { it[Keys.ONBOARDED] ?: false }

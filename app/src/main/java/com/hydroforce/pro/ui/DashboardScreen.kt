@@ -34,7 +34,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,12 +54,15 @@ import com.hydroforce.pro.data.AlarmState
 import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.IntakeLog
+import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.data.formatMl
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private fun clockLocale(lang: Language): Locale = if (lang == Language.EN) Locale.ENGLISH else Locale("ar")
 
 @Composable
 fun DashboardScreen(
@@ -79,6 +81,7 @@ fun DashboardScreen(
     selectedDrinkType: DrinkType,
     onDrinkTypeSelected: (DrinkType) -> Unit
 ) {
+    val lang = LocalLanguage.current
     val consumed = logs.sumOf { it.effectiveMl }
     Column(
         Modifier
@@ -100,11 +103,12 @@ fun DashboardScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("🥤 ماذا ستشرب؟", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(tr("🥤 ماذا ستشرب؟", "🥤 What are you drinking?"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                     DrinkTypePicker(selected = selectedDrinkType, onSelected = onDrinkTypeSelected)
                     if (selectedDrinkType.hydrationFactor < 1f) {
+                        val pct = (selectedDrinkType.hydrationFactor * 100).toInt()
                         Text(
-                            "ملاحظة: يُحتسب ${(selectedDrinkType.hydrationFactor * 100).toInt()}% من الكمية كترطيب لهذا النوع.",
+                            tr("ملاحظة: يُحتسب $pct% من الكمية كترطيب لهذا النوع.", "Note: $pct% of this drink counts as hydration."),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -121,8 +125,11 @@ fun DashboardScreen(
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("شربت ${selectedDrinkType.label} الآن 📷", fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Text("(توثيق بالكاميرا وإعادة ضبط المؤقت)", fontSize = 13.sp)
+                    Text(
+                        tr("شربت ${selectedDrinkType.label(lang)} الآن 📷", "I drank ${selectedDrinkType.label(lang)} now 📷"),
+                        fontSize = 21.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(tr("(توثيق بالكاميرا وإعادة ضبط المؤقت)", "(camera-verified, resets the timer)"), fontSize = 13.sp)
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -133,7 +140,7 @@ fun DashboardScreen(
                         .height(52.dp),
                     shape = RoundedCornerShape(18.dp)
                 ) {
-                    Text("📊 الإحصائيات", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(tr("📊 الإحصائيات", "📊 Stats"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
                 OutlinedButton(
                     onClick = onMeetings,
@@ -142,12 +149,12 @@ fun DashboardScreen(
                         .height(52.dp),
                     shape = RoundedCornerShape(18.dp)
                 ) {
-                    Text("📅 الاجتماعات", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(tr("📅 الاجتماعات", "📅 Meetings"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             UrineColorGuide()
             TodayLogCard(logs)
-            ResultCard(result, profile.cupSizeMl, title = "📋 لماذا هذا الهدف الطبي؟")
+            ResultCard(result, profile.cupSizeMl, title = tr("📋 لماذا هذا الهدف الطبي؟", "📋 Why this medical goal?"))
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -164,11 +171,11 @@ private fun Header(onSettings: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("هايدرو فورس برو 💧", color = Color.White, style = MaterialTheme.typography.titleLarge)
-                Text("ترطيب طبي ملزم بالتوثيق", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text(tr("هايدرو فورس برو 💧", "HydroForce Pro 💧"), color = Color.White, style = MaterialTheme.typography.titleLarge)
+                Text(tr("ترطيب طبي ملزم بالتوثيق", "Verified medical hydration"), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
             }
             TextButton(onClick = onSettings) {
-                Text("⚙️ الإعدادات", color = Color.White)
+                Text(tr("⚙️ الإعدادات", "⚙️ Settings"), color = Color.White)
             }
         }
     }
@@ -179,6 +186,7 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
     val fraction = (consumed.toFloat() / result.targetMl).coerceIn(0f, 1f)
     val animated by animateFloatAsState(fraction, tween(900), label = "progress")
     val percent = (consumed * 100f / result.targetMl).toInt()
+    val ml = tr("مل", "ml")
     Card(
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -212,20 +220,20 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("تقدم اليوم", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(tr("تقدم اليوم", "Today's progress"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    "${formatMl(consumed)} / ${formatMl(result.targetMl)} مل",
+                    "${formatMl(consumed)} / ${formatMl(result.targetMl)} $ml",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = HydroBlue
                 )
-                Text("مل مستهلك / الهدف الطبي اليومي", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("🥤 الأكواب: $cups من ${result.cupsNeeded}", fontWeight = FontWeight.SemiBold)
+                Text(tr("مل مستهلك / الهدف الطبي اليومي", "ml consumed / daily medical goal"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("🥤 الأكواب: $cups من ${result.cupsNeeded}", "🥤 Cups: $cups of ${result.cupsNeeded}"), fontWeight = FontWeight.SemiBold)
                 if (consumed >= result.targetMl) {
-                    Text("🎉 حققت هدفك الطبي اليوم!", color = HydroMint, fontWeight = FontWeight.Bold)
+                    Text(tr("🎉 حققت هدفك الطبي اليوم!", "🎉 You met today's goal!"), color = HydroMint, fontWeight = FontWeight.Bold)
                 } else {
                     Text(
-                        "متبقٍ ${formatMl(result.targetMl - consumed)} مل",
+                        tr("متبقٍ ${formatMl(result.targetMl - consumed)} مل", "${formatMl(result.targetMl - consumed)} ml remaining"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -236,12 +244,13 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
 
 @Composable
 private fun CountdownCard(profile: UserProfile, alarm: AlarmState, now: Long, ringing: Boolean, goalMet: Boolean) {
+    val lang = LocalLanguage.current
     val awake = ScheduleMath.isAwake(now, profile)
     val work = ScheduleMath.isWorkTime(now, profile)
     val badge = when {
-        !awake -> "وقت النوم 😴" to Color(0xFF5B5F97)
-        work -> "وضع العمل مفعل 💼" to Color(0xFF1F7A5C)
-        else -> "الوضع العادي 🔔" to HydroWarn
+        !awake -> tr("وقت النوم 😴", "Sleep time 😴") to Color(0xFF5B5F97)
+        work -> tr("وضع العمل مفعل 💼", "Work mode on 💼") to Color(0xFF1F7A5C)
+        else -> tr("الوضع العادي 🔔", "Normal mode 🔔") to HydroWarn
     }
     val remainingMs = alarm.nextAlarmAt - now
     Card(
@@ -251,7 +260,7 @@ private fun CountdownCard(profile: UserProfile, alarm: AlarmState, now: Long, ri
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("⏱️ العد التنازلي", color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(tr("⏱️ العد التنازلي", "⏱️ Countdown"), color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 Text(
                     badge.first,
                     color = Color.White,
@@ -264,16 +273,19 @@ private fun CountdownCard(profile: UserProfile, alarm: AlarmState, now: Long, ri
                 )
             }
             when {
-                ringing -> Text("🔔 التنبيه يرن الآن — وثّق شرب الماء!", color = HydroSky, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                ringing -> Text(tr("🔔 التنبيه يرن الآن — وثّق شرب الماء!", "🔔 Alarm ringing — verify drinking!"), color = HydroSky, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 alarm.nextAlarmAt <= 0L || remainingMs <= 0 ->
-                    Text("جارٍ جدولة التنبيه القادم...", color = Color.White)
+                    Text(tr("جارٍ جدولة التنبيه القادم...", "Scheduling next reminder..."), color = Color.White)
                 else -> {
                     val totalSec = remainingMs / 1000
                     val h = totalSec / 3600
                     val m = (totalSec % 3600) / 60
                     val s = totalSec % 60
                     Text(
-                        String.format(Locale.US, "التنبيه القادم بعد: %02d ساعة و %02d دقيقة", h, m),
+                        tr(
+                            String.format(Locale.US, "التنبيه القادم بعد: %02d ساعة و %02d دقيقة", h, m),
+                            String.format(Locale.US, "Next reminder in: %02d h %02d m", h, m)
+                        ),
                         color = Color.White,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Bold
@@ -286,14 +298,14 @@ private fun CountdownCard(profile: UserProfile, alarm: AlarmState, now: Long, ri
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
                     )
-                    val at = SimpleDateFormat("hh:mm a", Locale("ar")).format(Date(alarm.nextAlarmAt))
-                    val mode = if (ScheduleMath.isWorkTime(alarm.nextAlarmAt, profile)) "هادئ 💼" else "كامل 🔔"
-                    Text("الموعد: $at • نوع التنبيه: $mode", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                    val at = SimpleDateFormat("hh:mm a", clockLocale(lang)).format(Date(alarm.nextAlarmAt))
+                    val mode = if (ScheduleMath.isWorkTime(alarm.nextAlarmAt, profile)) tr("هادئ 💼", "Quiet 💼") else tr("كامل 🔔", "Full 🔔")
+                    Text(tr("الموعد: $at • نوع التنبيه: $mode", "At: $at • Type: $mode"), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                     if (goalMet) {
-                        Text("✅ الهدف مكتمل — التنبيه التالي عند الاستيقاظ", color = HydroSky, fontSize = 13.sp)
+                        Text(tr("✅ الهدف مكتمل — التنبيه التالي عند الاستيقاظ", "✅ Goal met — next reminder at wake-up"), color = HydroSky, fontSize = 13.sp)
                     }
                     if (alarm.snoozeUsed > 0) {
-                        Text("⏰ غفوات مستخدمة في هذه الدورة: ${alarm.snoozeUsed}", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                        Text(tr("⏰ غفوات مستخدمة في هذه الدورة: ${alarm.snoozeUsed}", "⏰ Snoozes used this cycle: ${alarm.snoozeUsed}"), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                     }
                 }
             }
@@ -301,21 +313,26 @@ private fun CountdownCard(profile: UserProfile, alarm: AlarmState, now: Long, ri
     }
 }
 
-private data class UrineShade(val color: Color, val level: String, val advice: String)
+private data class UrineShade(
+    val color: Color,
+    val level: String, val levelEn: String,
+    val advice: String, val adviceEn: String
+)
 
 private val urineShades = listOf(
-    UrineShade(Color(0xFFF8F9E8), "1 — ترطيب ممتاز", "لون شفاف تقريباً. أنت رطب جيداً، حافظ على الوتيرة ولا تفرط."),
-    UrineShade(Color(0xFFF6F3C2), "2 — ترطيب ممتاز", "أصفر باهت جداً. هذا هو اللون المثالي."),
-    UrineShade(Color(0xFFF3EB9A), "3 — ترطيب جيد", "أصفر فاتح. ترطيب صحي، استمر بالالتزام بالتنبيهات."),
-    UrineShade(Color(0xFFEFDE6E), "4 — مقبول", "أصفر. ابدأ بالانتباه واشرب كأساً قريباً."),
-    UrineShade(Color(0xFFE6C84B), "5 — جفاف خفيف", "أصفر داكن. اشرب كأساً الآن ولا تؤجل التنبيه القادم."),
-    UrineShade(Color(0xFFD6AA34), "6 — جفاف", "كهرماني. جسمك يحتاج ماءً، اشرب 1–2 كأس خلال الساعة."),
-    UrineShade(Color(0xFFB98A22), "7 — جفاف واضح", "برتقالي داكن. اشرب فوراً وراجع التزامك بالجدول."),
-    UrineShade(Color(0xFF8E6516), "8 — جفاف شديد", "بني/كهرماني غامق. اشرب الماء فوراً واستشر طبيباً إن استمر اللون أو صاحبه دوار.")
+    UrineShade(Color(0xFFF8F9E8), "1 — ترطيب ممتاز", "1 — Excellent", "لون شفاف تقريباً. أنت رطب جيداً، حافظ على الوتيرة ولا تفرط.", "Almost clear. Well hydrated — keep the pace, don't overdo it."),
+    UrineShade(Color(0xFFF6F3C2), "2 — ترطيب ممتاز", "2 — Excellent", "أصفر باهت جداً. هذا هو اللون المثالي.", "Very pale yellow. This is the ideal color."),
+    UrineShade(Color(0xFFF3EB9A), "3 — ترطيب جيد", "3 — Good", "أصفر فاتح. ترطيب صحي، استمر بالالتزام بالتنبيهات.", "Light yellow. Healthy hydration, keep following reminders."),
+    UrineShade(Color(0xFFEFDE6E), "4 — مقبول", "4 — Fair", "أصفر. ابدأ بالانتباه واشرب كأساً قريباً.", "Yellow. Pay attention and drink a cup soon."),
+    UrineShade(Color(0xFFE6C84B), "5 — جفاف خفيف", "5 — Mild dehydration", "أصفر داكن. اشرب كأساً الآن ولا تؤجل التنبيه القادم.", "Dark yellow. Drink a cup now and don't postpone the next reminder."),
+    UrineShade(Color(0xFFD6AA34), "6 — جفاف", "6 — Dehydrated", "كهرماني. جسمك يحتاج ماءً، اشرب 1–2 كأس خلال الساعة.", "Amber. Your body needs water, drink 1–2 cups within the hour."),
+    UrineShade(Color(0xFFB98A22), "7 — جفاف واضح", "7 — Clear dehydration", "برتقالي داكن. اشرب فوراً وراجع التزامك بالجدول.", "Dark orange. Drink immediately and review your schedule."),
+    UrineShade(Color(0xFF8E6516), "8 — جفاف شديد", "8 — Severe dehydration", "بني/كهرماني غامق. اشرب الماء فوراً واستشر طبيباً إن استمر اللون أو صاحبه دوار.", "Dark brown/amber. Drink water now and see a doctor if it persists or you feel dizzy.")
 )
 
 @Composable
 private fun UrineColorGuide() {
+    val lang = LocalLanguage.current
     var selected by remember { mutableIntStateOf(-1) }
     Card(
         shape = RoundedCornerShape(22.dp),
@@ -323,8 +340,8 @@ private fun UrineColorGuide() {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("🧪 دليل ألوان البول للترطيب", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Text("اضغط على اللون الأقرب لحالتك لمعرفة مستوى ترطيبك", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("🧪 دليل ألوان البول للترطيب", "🧪 Urine hydration color guide"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(tr("اضغط على اللون الأقرب لحالتك لمعرفة مستوى ترطيبك", "Tap the closest color to check your hydration level"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 urineShades.forEachIndexed { i, shade ->
                     Box(
@@ -346,8 +363,8 @@ private fun UrineColorGuide() {
                 }
             }
             Row {
-                Text("رطب جيداً 💧", fontSize = 12.sp, color = HydroMint, modifier = Modifier.weight(1f))
-                Text("جفاف ⚠️", fontSize = 12.sp, color = HydroDanger)
+                Text(tr("رطب جيداً 💧", "Well hydrated 💧"), fontSize = 12.sp, color = HydroMint, modifier = Modifier.weight(1f))
+                Text(tr("جفاف ⚠️", "Dehydration ⚠️"), fontSize = 12.sp, color = HydroDanger)
             }
             AnimatedVisibility(visible = selected >= 0) {
                 val shade = urineShades.getOrNull(selected)
@@ -359,8 +376,8 @@ private fun UrineColorGuide() {
                             .background(shade.color.copy(alpha = 0.35f))
                             .padding(12.dp)
                     ) {
-                        Text(shade.level, fontWeight = FontWeight.Bold)
-                        Text(shade.advice, fontSize = 14.sp)
+                        Text(if (lang == Language.EN) shade.levelEn else shade.level, fontWeight = FontWeight.Bold)
+                        Text(if (lang == Language.EN) shade.adviceEn else shade.advice, fontSize = 14.sp)
                     }
                 }
             }
@@ -370,27 +387,29 @@ private fun UrineColorGuide() {
 
 @Composable
 private fun TodayLogCard(logs: List<IntakeLog>) {
-    val fmt = remember { SimpleDateFormat("hh:mm a", Locale("ar")) }
+    val lang = LocalLanguage.current
+    val ml = tr("مل", "ml")
+    val fmt = remember(lang) { SimpleDateFormat("hh:mm a", clockLocale(lang)) }
     Card(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("📒 سجل اليوم (موثق بالكاميرا)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(tr("📒 سجل اليوم (موثق بالكاميرا)", "📒 Today's log (camera-verified)"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(6.dp))
             if (logs.isEmpty()) {
-                Text("لم يتم تسجيل أي كأس بعد اليوم.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("لم يتم تسجيل أي كأس بعد اليوم.", "No drinks logged yet today."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 logs.forEachIndexed { i, log ->
                     if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                     val type = DrinkType.fromName(log.drinkType)
-                    val via = if (log.source == HydrationManager.SOURCE_ALARM) "🔔 عند التنبيه" else "📷 توثيق استباقي"
+                    val via = if (log.source == HydrationManager.SOURCE_ALARM) tr("🔔 عند التنبيه", "🔔 At reminder") else tr("📷 توثيق استباقي", "📷 Proactive")
                     Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(type.emoji, fontSize = 18.sp)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("${type.label} +${log.amountMl} مل", fontWeight = FontWeight.SemiBold)
+                            Text("${type.label(lang)} +${log.amountMl} $ml", fontWeight = FontWeight.SemiBold)
                             Text(via, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(fmt.format(Date(log.timestamp)), color = MaterialTheme.colorScheme.onSurfaceVariant)

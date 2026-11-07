@@ -44,6 +44,8 @@ import com.hydroforce.pro.ui.MainViewModel
 import com.hydroforce.pro.ui.MeetingsScreen
 import com.hydroforce.pro.ui.ProfileScreen
 import com.hydroforce.pro.ui.StatsScreen
+import com.hydroforce.pro.ui.LocalLanguage
+import com.hydroforce.pro.ui.tr
 import com.hydroforce.pro.data.CsvExporter
 import com.hydroforce.pro.ui.rememberPermissionStatus
 import com.hydroforce.pro.update.UpdateAvailableDialog
@@ -92,6 +94,7 @@ private fun HydroNavHost(vm: MainViewModel) {
     val now by vm.now.collectAsStateWithLifecycle()
     val ringing by vm.ringing.collectAsStateWithLifecycle()
     var permRefresh by remember { mutableIntStateOf(0) }
+    val lang = LocalLanguage.current
 
     // Self-update: check GitHub once on launch and show a dialog if a newer release exists.
     val updateController = rememberUpdateController()
@@ -164,7 +167,7 @@ private fun HydroNavHost(vm: MainViewModel) {
                 isOnboarding = false,
                 onSave = { p ->
                     vm.saveProfile(p) {
-                        Toast.makeText(context, "تم الحفظ وإعادة جدولة التنبيهات ✅", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, tr(lang, "تم الحفظ وإعادة جدولة التنبيهات ✅", "Saved and reminders rescheduled ✅"), Toast.LENGTH_SHORT).show()
                         nav.popBackStack()
                     }
                 },
@@ -180,14 +183,17 @@ private fun HydroNavHost(vm: MainViewModel) {
                     .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
-                TextButton(onClick = { nav.popBackStack() }) { Text("→ إلغاء", color = Color.White) }
+                TextButton(onClick = { nav.popBackStack() }) { Text(tr("→ إلغاء", "→ Cancel"), color = Color.White) }
                 CameraVerificationScreen(
-                    title = "شربت ماء الآن؟ وثّق ذلك 📷 (+${formatMl(profile.cupSizeMl)} مل)",
+                    title = tr(
+                        "شربت ماء الآن؟ وثّق ذلك 📷 (+${formatMl(profile.cupSizeMl)} مل)",
+                        "Drinking now? Verify it 📷 (+${formatMl(profile.cupSizeMl)} ml)"
+                    ),
                     onVerified = {
                         vm.onManualDrinkVerified {
                             Toast.makeText(
                                 context,
-                                "تمت إضافة ${profile.cupSizeMl} مل وإعادة ضبط المؤقت من الآن ⏱️",
+                                tr(lang, "تمت إضافة ${profile.cupSizeMl} مل وإعادة ضبط المؤقت من الآن ⏱️", "Added ${profile.cupSizeMl} ml and reset the timer ⏱️"),
                                 Toast.LENGTH_LONG
                             ).show()
                             nav.popBackStack()

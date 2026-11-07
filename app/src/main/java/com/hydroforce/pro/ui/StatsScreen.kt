@@ -54,12 +54,12 @@ fun StatsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("→ رجوع") }
-            Text("📊 الإحصائيات والتاريخ", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+            TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
+            Text(tr("📊 الإحصائيات والتاريخ", "📊 Stats & history"), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
         }
 
         if (stats == null) {
-            Text("جارٍ حساب الإحصائيات...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("جارٍ حساب الإحصائيات...", "Calculating stats..."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
 
@@ -73,16 +73,16 @@ fun StatsScreen(
                 Text("🔥", fontSize = 40.sp)
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("${stats.streak} يوم", color = HydroSky, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                    Text("سلسلة الأيام التي حقّقت فيها هدفك المتتالية", color = Color.White, fontSize = 13.sp)
+                    Text(tr("${stats.streak} يوم", "${stats.streak} days"), color = HydroSky, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                    Text(tr("سلسلة الأيام التي حقّقت فيها هدفك المتتالية", "Consecutive days you met your goal"), color = Color.White, fontSize = 13.sp)
                 }
             }
         }
 
         // Stat tiles
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatTile("المتوسط اليومي", "${formatMl(stats.avgPerDayMl)} مل", Modifier.weight(1f))
-            StatTile("أيام الهدف", "${stats.daysGoalMet} / ${stats.days.size}", Modifier.weight(1f))
+            StatTile(tr("المتوسط اليومي", "Daily average"), "${formatMl(stats.avgPerDayMl)} ${tr("مل", "ml")}", Modifier.weight(1f))
+            StatTile(tr("أيام الهدف", "Goal days"), "${stats.daysGoalMet} / ${stats.days.size}", Modifier.weight(1f))
         }
 
         // Weekly chart
@@ -93,8 +93,8 @@ fun StatsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp)) {
-                Text("آخر ${stats.days.size} أيام", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                Text("الخط المتقطّع = هدفك اليومي (${formatMl(stats.targetMl)} مل)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("آخر ${stats.days.size} أيام", "Last ${stats.days.size} days"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(tr("الخط المتقطّع = هدفك اليومي (${formatMl(stats.targetMl)} مل)", "Dashed line = daily goal (${formatMl(stats.targetMl)} ml)"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 WeeklyBarChart(stats)
             }
@@ -107,7 +107,7 @@ fun StatsScreen(
                 .height(52.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
-            Text("📤 تصدير السجل (CSV)")
+            Text(tr("📤 تصدير السجل (CSV)", "📤 Export log (CSV)"))
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -178,13 +178,15 @@ private fun WeeklyBarChart(stats: StatsData) {
     }
 
     Spacer(Modifier.height(6.dp))
-    val dayFmt = remember { SimpleDateFormat("EEE", Locale("ar")) }
+    val en = LocalLanguage.current == com.hydroforce.pro.data.Language.EN
+    val litre = if (en) "L" else "ل"
+    val dayFmt = remember(en) { SimpleDateFormat("EEE", if (en) Locale.ENGLISH else Locale("ar")) }
     Row(Modifier.fillMaxWidth()) {
         stats.days.forEach { day ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(dayFmt.format(Date(day.dayStartMillis)), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    String.format(Locale.US, "%.1fل", day.totalMl / 1000f),
+                    String.format(Locale.US, "%.1f$litre", day.totalMl / 1000f),
                     fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center
                 )
             }

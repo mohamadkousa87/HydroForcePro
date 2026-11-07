@@ -45,6 +45,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.hydroforce.pro.alarm.AlarmScheduler
+import com.hydroforce.pro.data.Language
 
 enum class PermKey { CAMERA, NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN, BATTERY }
 
@@ -52,32 +53,33 @@ data class PermItem(val key: PermKey, val title: String, val description: String
 
 object PermissionChecker {
 
-    fun status(context: Context): List<PermItem> {
+    fun status(context: Context, lang: Language = Language.AR): List<PermItem> {
+        fun t(ar: String, en: String) = tr(lang, ar, en)
         val list = mutableListOf<PermItem>()
         list += PermItem(
-            PermKey.CAMERA, "الكاميرا", "لتوثيق كأس الماء بالتحقق الذكي",
+            PermKey.CAMERA, t("الكاميرا", "Camera"), t("لتوثيق كأس الماء بالتحقق الذكي", "To verify your drink with smart detection"),
             granted(context, Manifest.permission.CAMERA)
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list += PermItem(
-                PermKey.NOTIFICATIONS, "الإشعارات", "لإظهار تنبيه شرب الماء",
+                PermKey.NOTIFICATIONS, t("الإشعارات", "Notifications"), t("لإظهار تنبيه شرب الماء", "To show the drink reminder"),
                 granted(context, Manifest.permission.POST_NOTIFICATIONS)
             )
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             list += PermItem(
-                PermKey.EXACT_ALARM, "المنبهات الدقيقة", "ليرن التنبيه في موعده بالضبط",
+                PermKey.EXACT_ALARM, t("المنبهات الدقيقة", "Exact alarms"), t("ليرن التنبيه في موعده بالضبط", "So the reminder fires exactly on time"),
                 AlarmScheduler.canScheduleExact(context)
             )
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             list += PermItem(
-                PermKey.FULL_SCREEN, "التنبيه بملء الشاشة", "لعرض شاشة التنبيه فوق شاشة القفل",
+                PermKey.FULL_SCREEN, t("التنبيه بملء الشاشة", "Full-screen alert"), t("لعرض شاشة التنبيه فوق شاشة القفل", "To show the alarm over the lock screen"),
                 context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
             )
         }
         list += PermItem(
-            PermKey.BATTERY, "تجاهل تحسين البطارية", "حتى لا يوقف النظام التنبيهات",
+            PermKey.BATTERY, t("تجاهل تحسين البطارية", "Ignore battery optimization"), t("حتى لا يوقف النظام التنبيهات", "So the system doesn't stop reminders"),
             context.getSystemService(PowerManager::class.java)
                 .isIgnoringBatteryOptimizations(context.packageName)
         )
@@ -109,11 +111,12 @@ object PermissionChecker {
 fun rememberPermissionStatus(onResume: () -> Unit = {}): List<PermItem> {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    var items by remember { mutableStateOf(PermissionChecker.status(context)) }
-    DisposableEffect(owner) {
+    val lang = LocalLanguage.current
+    var items by remember(lang) { mutableStateOf(PermissionChecker.status(context, lang)) }
+    DisposableEffect(owner, lang) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                items = PermissionChecker.status(context)
+                items = PermissionChecker.status(context, lang)
                 onResume()
             }
         }
@@ -163,9 +166,9 @@ fun PermissionsHealthCard(items: List<PermItem>, onChanged: () -> Unit) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("🛡️ فحص صلاحيات التطبيق", style = MaterialTheme.typography.titleMedium, color = Color(0xFF8A4B0B))
+            Text(tr("🛡️ فحص صلاحيات التطبيق", "🛡️ App permissions check"), style = MaterialTheme.typography.titleMedium, color = Color(0xFF8A4B0B))
             Text(
-                "التنبيهات الملزمة تحتاج هذه الصلاحيات لتعمل بشكل موثوق:",
+                tr("التنبيهات الملزمة تحتاج هذه الصلاحيات لتعمل بشكل موثوق:", "Enforced reminders need these permissions to work reliably:"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFF8A4B0B)
             )
@@ -189,7 +192,7 @@ fun PermissionsHealthCard(items: List<PermItem>, onChanged: () -> Unit) {
                     Button(
                         onClick = { request(item) },
                         colors = ButtonDefaults.buttonColors(containerColor = HydroWarn)
-                    ) { Text("منح") }
+                    ) { Text(tr("منح", "Grant")) }
                 }
             }
         }

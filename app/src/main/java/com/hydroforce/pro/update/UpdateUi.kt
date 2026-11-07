@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.hydroforce.pro.ui.HydroBlue
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroMint
+import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -123,9 +124,12 @@ fun UpdateSection(controller: UpdateController) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("🔄 تحديثات التطبيق", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+            Text(tr("🔄 تحديثات التطبيق", "🔄 App updates"), style = MaterialTheme.typography.titleMedium, color = HydroDeep)
             Text(
-                "الإصدار الحالي: ${controller.currentVersionName} (كود ${controller.currentVersionCode})",
+                tr(
+                    "الإصدار الحالي: ${controller.currentVersionName} (كود ${controller.currentVersionCode})",
+                    "Current version: ${controller.currentVersionName} (code ${controller.currentVersionCode})"
+                ),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -134,39 +138,39 @@ fun UpdateSection(controller: UpdateController) {
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.height(20.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.height(0.dp))
-                        Text("  جارٍ التحقق...", fontSize = 14.sp)
+                        Text(tr("  جارٍ التحقق...", "  Checking..."), fontSize = 14.sp)
                     }
                 is UpdateUiState.UpToDate ->
-                    Text("✅ أنت على أحدث إصدار.", color = HydroMint, fontWeight = FontWeight.SemiBold)
+                    Text(tr("✅ أنت على أحدث إصدار.", "✅ You're on the latest version."), color = HydroMint, fontWeight = FontWeight.SemiBold)
                 is UpdateUiState.Available ->
-                    Text("🎉 يتوفّر إصدار جديد: ${state.info.versionName}", color = HydroBlue, fontWeight = FontWeight.Bold)
+                    Text(tr("🎉 يتوفّر إصدار جديد: ${state.info.versionName}", "🎉 New version available: ${state.info.versionName}"), color = HydroBlue, fontWeight = FontWeight.Bold)
                 is UpdateUiState.Downloading ->
                     Column {
-                        Text("⬇️ جارٍ التنزيل... ${(state.progress * 100).toInt()}%", fontSize = 14.sp)
+                        Text(tr("⬇️ جارٍ التنزيل... ${(state.progress * 100).toInt()}%", "⬇️ Downloading... ${(state.progress * 100).toInt()}%"), fontSize = 14.sp)
                         Spacer(Modifier.height(6.dp))
                         @Suppress("DEPRECATION")
                         LinearProgressIndicator(progress = state.progress, modifier = Modifier.fillMaxWidth())
                     }
                 is UpdateUiState.NeedsPermission ->
-                    Text("⚠️ فعّل السماح بتثبيت التطبيقات من هذا المصدر ثم أعد المحاولة.", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                    Text(tr("⚠️ فعّل السماح بتثبيت التطبيقات من هذا المصدر ثم أعد المحاولة.", "⚠️ Allow installing apps from this source, then retry."), color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                 is UpdateUiState.Error ->
-                    Text("تعذّر: ${state.message}", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                    Text(tr("تعذّر: ${state.message}", "Failed: ${state.message}"), color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                 else -> {}
             }
 
             when (state) {
                 is UpdateUiState.Available ->
                     Button(onClick = { controller.download(state.info) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                        Text("تنزيل وتثبيت ${state.info.versionName} ⬇️")
+                        Text(tr("تنزيل وتثبيت ${state.info.versionName} ⬇️", "Download & install ${state.info.versionName} ⬇️"))
                     }
                 is UpdateUiState.NeedsPermission ->
                     Button(onClick = { controller.install(state.info, state.file) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                        Text("تثبيت الآن")
+                        Text(tr("تثبيت الآن", "Install now"))
                     }
                 is UpdateUiState.Downloading -> {}
                 else ->
                     OutlinedButton(onClick = { controller.check(silent = false) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                        Text("التحقق من وجود تحديث")
+                        Text(tr("التحقق من وجود تحديث", "Check for updates"))
                     }
             }
         }
@@ -188,37 +192,37 @@ fun UpdateAvailableDialog(controller: UpdateController) {
 
     AlertDialog(
         onDismissRequest = { if (downloading == null) controller.dismiss() },
-        title = { Text("يتوفّر تحديث جديد 🎉") },
+        title = { Text(tr("يتوفّر تحديث جديد 🎉", "Update available 🎉")) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("الإصدار ${info.versionName}", fontWeight = FontWeight.Bold, color = HydroBlue)
-                Text("ما الجديد:", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(tr("الإصدار ${info.versionName}", "Version ${info.versionName}"), fontWeight = FontWeight.Bold, color = HydroBlue)
+                Text(tr("ما الجديد:", "What's new:"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(info.notes, fontSize = 14.sp)
                 if (downloading != null) {
                     Spacer(Modifier.height(4.dp))
-                    Text("جارٍ التنزيل... ${(downloading.progress * 100).toInt()}%", fontSize = 13.sp)
+                    Text(tr("جارٍ التنزيل... ${(downloading.progress * 100).toInt()}%", "Downloading... ${(downloading.progress * 100).toInt()}%"), fontSize = 13.sp)
                     @Suppress("DEPRECATION")
                     LinearProgressIndicator(progress = downloading.progress, modifier = Modifier.fillMaxWidth())
                 }
                 if (state is UpdateUiState.NeedsPermission) {
-                    Text("⚠️ فعّل السماح بالتثبيت من هذا المصدر ثم اضغط «تثبيت».", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                    Text(tr("⚠️ فعّل السماح بالتثبيت من هذا المصدر ثم اضغط «تثبيت».", "⚠️ Allow installing from this source, then tap \"Install\"."), color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                 }
             }
         },
         confirmButton = {
             when (state) {
                 is UpdateUiState.NeedsPermission ->
-                    Button(onClick = { controller.install(info, state.file) }) { Text("تثبيت") }
+                    Button(onClick = { controller.install(info, state.file) }) { Text(tr("تثبيت", "Install")) }
                 is UpdateUiState.Downloading -> {}
                 else ->
-                    Button(onClick = { controller.download(info) }) { Text("تحديث الآن") }
+                    Button(onClick = { controller.download(info) }) { Text(tr("تحديث الآن", "Update now")) }
             }
         },
         dismissButton = {
-            if (downloading == null) TextButton(onClick = { controller.dismiss() }) { Text("لاحقاً") }
+            if (downloading == null) TextButton(onClick = { controller.dismiss() }) { Text(tr("لاحقاً", "Later")) }
         }
     )
 }

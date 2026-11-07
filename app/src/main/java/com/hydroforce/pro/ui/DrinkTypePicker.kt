@@ -25,11 +25,12 @@ fun DrinkTypePicker(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        val lang = LocalLanguage.current
         DrinkType.entries.forEach { type ->
             FilterChip(
                 selected = selected == type,
                 onClick = { onSelected(type) },
-                label = { Text("${type.emoji} ${type.label}") }
+                label = { Text("${type.emoji} ${type.label(lang)}") }
             )
         }
     }
