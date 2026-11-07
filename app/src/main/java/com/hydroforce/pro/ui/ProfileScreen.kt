@@ -103,8 +103,8 @@ fun ProfileScreen(
         workStartMinutes = workStart,
         workEndMinutes = workEnd
     )
-    val result = HydrationCalculator.calculate(draft)
     val lang = LocalLanguage.current
+    val result = HydrationCalculator.calculate(draft, lang)
     val ml = tr("مل", "ml")
 
     Column(
@@ -202,8 +202,8 @@ fun ProfileScreen(
             } else {
                 Text(
                     tr(
-                        "ساعات اليقظة: ${formatDuration(result.awakeMinutes)} — لا تنبيهات إطلاقاً أثناء النوم 😴",
-                        "Waking hours: ${formatDuration(result.awakeMinutes)} — no reminders at all during sleep 😴"
+                        "ساعات اليقظة: ${formatDuration(result.awakeMinutes, lang)} — لا تنبيهات إطلاقاً أثناء النوم 😴",
+                        "Waking hours: ${formatDuration(result.awakeMinutes, lang)} — no reminders at all during sleep 😴"
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -298,6 +298,7 @@ private fun NumberField(
 @Composable
 private fun TimeRow(label: String, minutes: Int, onPick: (Int) -> Unit) {
     val context = LocalContext.current
+    val lang = LocalLanguage.current
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -309,12 +310,13 @@ private fun TimeRow(label: String, minutes: Int, onPick: (Int) -> Unit) {
             },
             border = BorderStroke(1.dp, HydroBlue),
             shape = RoundedCornerShape(12.dp)
-        ) { Text(formatClock(minutes)) }
+        ) { Text(formatClock(minutes, lang)) }
     }
 }
 
 @Composable
 fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك الطبي اليومي") {
+    val lang = LocalLanguage.current
     Card(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -330,8 +332,8 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
             )
             Text(
                 tr(
-                    "= ${result.cupsNeeded} كأس × $cup مل • تنبيه كل ${formatDuration(result.intervalMinutes)}",
-                    "= ${result.cupsNeeded} cups × $cup ml • reminder every ${formatDuration(result.intervalMinutes)}"
+                    "= ${result.cupsNeeded} كأس × $cup مل • تنبيه كل ${formatDuration(result.intervalMinutes, lang)}",
+                    "= ${result.cupsNeeded} cups × $cup ml • reminder every ${formatDuration(result.intervalMinutes, lang)}"
                 ),
                 color = MaterialTheme.colorScheme.onSurface
             )

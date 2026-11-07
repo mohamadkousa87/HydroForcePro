@@ -47,8 +47,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val alarmState: StateFlow<AlarmState> = repo.alarmState
         .stateIn(viewModelScope, SharingStarted.Eagerly, AlarmState())
 
-    val result: StateFlow<HydrationResult> = profile.map { HydrationCalculator.calculate(it) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, HydrationCalculator.calculate(UserProfile()))
+    val result: StateFlow<HydrationResult> = combine(profile, repo.language) { p, lang ->
+        HydrationCalculator.calculate(p, lang)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, HydrationCalculator.calculate(UserProfile()))
 
     val now: StateFlow<Long> = flow {
         while (true) {
