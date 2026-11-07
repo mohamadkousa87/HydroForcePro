@@ -24,9 +24,11 @@ import androidx.lifecycle.lifecycleScope
 import com.hydroforce.pro.HydroApp
 import com.hydroforce.pro.R
 import com.hydroforce.pro.data.CALL_POSTPONE_MINUTES
+import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.RETRY_MINUTES
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
+import com.hydroforce.pro.data.covering
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +50,7 @@ class AlarmService : LifecycleService() {
         private const val NOTIFICATION_ID = 42
         private const val MISSED_NOTIFICATION_ID = 43
         private const val CALL_NOTIFICATION_ID = 44
+        private const val MEETING_NOTIFICATION_ID = 45
         private const val RING_TIMEOUT_MS = 10L * 60 * 1000
 
         private val _ringing = MutableStateFlow(false)
@@ -101,10 +104,18 @@ class AlarmService : LifecycleService() {
                 stopEverything()
                 return@launch
             }
+            val repo = SettingsRepository(applicationContext)
+            // If a scheduled meeting is in progress, postpone until it ends instead of ringing.
+            val meeting = repo.currentMeetings().covering(System.currentTimeMillis())
+            if (meeting != null) {
+                HydrationManager.schedulePostponeUntil(applicationContext, meeting.endMillis)
+                notifyPostponedForMeeting(meeting)
+                stopEverything()
+                return@launch
+            }
             _ringing.value = true
             _muted.value = false
             acquireWakeLock()
-            val repo = SettingsRepository(applicationContext)
             val profile = repo.currentProfile()
             val isDiscreet = ScheduleMath.isWorkTime(System.currentTimeMillis(), profile)
             _discreet.value = isDiscreet
@@ -268,6 +279,19 @@ class AlarmService : LifecycleService() {
             .setAutoCancel(true)
             .build()
         getSystemService(NotificationManager::class.java).notify(CALL_NOTIFICATION_ID, note)
+    }
+
+    private fun notifyPostponedForMeeting(meeting: Meeting) {
+        val label = meeting.title.ifBlank { "اجتماعك" }
+        val note = NotificationCompat.Builder(this, HydroApp.CHANNEL_MISSED)
+            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setContentTitle("تم تأجيل تنبيه الماء 📅")
+            .setContentText("أنت في «$label» الآن — سيعاد التنبيه بعد انتهائه.")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(alarmIntent(_discreet.value))
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(MEETING_NOTIFICATION_ID, note)
     }
 
     private fun onRingTimeout() {

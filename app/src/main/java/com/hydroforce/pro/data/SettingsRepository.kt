@@ -36,6 +36,7 @@ class SettingsRepository(context: Context) {
         val NEXT_ALARM = longPreferencesKey("next_alarm")
         val SNOOZE_USED = intPreferencesKey("snooze_used")
         val LAST_DRINK = longPreferencesKey("last_drink")
+        val MEETINGS = stringPreferencesKey("meetings")
     }
 
     val onboarded: Flow<Boolean> = store.data.map { it[Keys.ONBOARDED] ?: false }
@@ -50,9 +51,33 @@ class SettingsRepository(context: Context) {
         )
     }
 
+    /** Upcoming/active meetings only (past ones are filtered out). */
+    val meetings: Flow<List<Meeting>> = store.data.map { prefs ->
+        val now = System.currentTimeMillis()
+        MeetingCodec.decode(prefs[Keys.MEETINGS]).filter { it.endMillis > now }.sortedBy { it.startMillis }
+    }
+
     suspend fun currentProfile(): UserProfile = profile.first()
     suspend fun currentAlarmState(): AlarmState = alarmState.first()
+    suspend fun currentMeetings(): List<Meeting> = meetings.first()
     suspend fun isOnboarded(): Boolean = onboarded.first()
+
+    suspend fun addMeeting(start: Long, end: Long, title: String) {
+        store.edit { prefs ->
+            val now = System.currentTimeMillis()
+            val existing = MeetingCodec.decode(prefs[Keys.MEETINGS]).filter { it.endMillis > now }
+            val meeting = Meeting(id = System.currentTimeMillis(), startMillis = start, endMillis = end, title = title)
+            prefs[Keys.MEETINGS] = MeetingCodec.encode(existing + meeting)
+        }
+    }
+
+    suspend fun removeMeeting(id: Long) {
+        store.edit { prefs ->
+            val now = System.currentTimeMillis()
+            val kept = MeetingCodec.decode(prefs[Keys.MEETINGS]).filter { it.endMillis > now && it.id != id }
+            prefs[Keys.MEETINGS] = MeetingCodec.encode(kept)
+        }
+    }
 
     suspend fun saveProfile(p: UserProfile) {
         store.edit {

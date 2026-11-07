@@ -40,6 +40,7 @@ import com.hydroforce.pro.ui.DashboardScreen
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroTheme
 import com.hydroforce.pro.ui.MainViewModel
+import com.hydroforce.pro.ui.MeetingsScreen
 import com.hydroforce.pro.ui.ProfileScreen
 import com.hydroforce.pro.ui.rememberPermissionStatus
 import com.hydroforce.pro.update.UpdateAvailableDialog
@@ -66,6 +67,7 @@ private object Routes {
     const val DASHBOARD = "dashboard"
     const val SETTINGS = "settings"
     const val CAMERA = "camera"
+    const val MEETINGS = "meetings"
 }
 
 @Composable
@@ -118,9 +120,19 @@ private fun HydroNavHost(vm: MainViewModel) {
                     permissions = permissions,
                     onPermissionsChanged = { permRefresh++ },
                     onDrinkNow = { nav.navigate(Routes.CAMERA) },
-                    onSettings = { nav.navigate(Routes.SETTINGS) }
+                    onSettings = { nav.navigate(Routes.SETTINGS) },
+                    onMeetings = { nav.navigate(Routes.MEETINGS) }
                 )
             }
+        }
+        composable(Routes.MEETINGS) {
+            val meetings by vm.meetings.collectAsStateWithLifecycle()
+            MeetingsScreen(
+                meetings = meetings,
+                onAdd = { start, end, title -> vm.addMeeting(start, end, title) },
+                onRemove = { vm.removeMeeting(it) },
+                onBack = { nav.popBackStack() }
+            )
         }
         composable(Routes.SETTINGS) {
             ProfileScreen(

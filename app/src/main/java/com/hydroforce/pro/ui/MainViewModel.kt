@@ -10,6 +10,7 @@ import com.hydroforce.pro.data.AppDatabase
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.IntakeLog
+import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.UserProfile
@@ -59,6 +60,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val ringing: StateFlow<Boolean> = AlarmService.ringing
+
+    val meetings: StateFlow<List<Meeting>> = repo.meetings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun addMeeting(startMillis: Long, endMillis: Long, title: String) {
+        viewModelScope.launch {
+            repo.addMeeting(startMillis, endMillis, title)
+            if (!AlarmService.ringing.value) HydrationManager.rescheduleFrom(getApplication())
+        }
+    }
+
+    fun removeMeeting(id: Long) {
+        viewModelScope.launch {
+            repo.removeMeeting(id)
+            if (!AlarmService.ringing.value) HydrationManager.rescheduleFrom(getApplication())
+        }
+    }
 
     init {
         viewModelScope.launch { ensureScheduled() }

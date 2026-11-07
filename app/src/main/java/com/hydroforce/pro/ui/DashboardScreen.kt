@@ -28,6 +28,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -71,7 +72,8 @@ fun DashboardScreen(
     permissions: List<PermItem>,
     onPermissionsChanged: () -> Unit,
     onDrinkNow: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onMeetings: () -> Unit
 ) {
     val consumed = logs.sumOf { it.amountMl }
     Column(
@@ -101,6 +103,15 @@ fun DashboardScreen(
                     Text("شربت ماء الآن 📷", fontSize = 21.sp, fontWeight = FontWeight.Bold)
                     Text("(توثيق بالكاميرا وإعادة ضبط المؤقت)", fontSize = 13.sp)
                 }
+            }
+            OutlinedButton(
+                onClick = onMeetings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text("📅 جدولة اجتماع (تأجيل التنبيهات مؤقتاً)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             UrineColorGuide()
             TodayLogCard(logs)
