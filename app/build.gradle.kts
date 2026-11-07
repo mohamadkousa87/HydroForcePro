@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
 }
+
+// Read version from gradle.properties (single source of truth, shared with CI).
+val appVersionCode = (project.findProperty("VERSION_CODE") as String).toInt()
+val appVersionName = project.findProperty("VERSION_NAME") as String
+
+// Release signing: active only when keystore.properties exists (created locally or by CI).
+val keystorePropsFile = rootProject.file("keystore.properties")
+val hasKeystore = keystorePropsFile.exists()
+val keystoreProps = Properties().apply { if (hasKeystore) load(keystorePropsFile.inputStream()) }
 
 android {
     namespace = "com.hydroforce.pro"
@@ -12,15 +23,32 @@ android {
         applicationId = "com.hydroforce.pro"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
+
+        // GitHub repo used by the in-app self-updater.
+        buildConfigField("String", "UPDATE_REPO", "\"mohamadkousa87/HydroForcePro\"")
+    }
+
+    signingConfigs {
+        if (hasKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -32,6 +60,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"

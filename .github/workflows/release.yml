@@ -1,0 +1,99 @@
+name: Build & Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Read version from gradle.properties
+        id: ver
+        run: |
+          VERSION_CODE=$(grep '^VERSION_CODE=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          VERSION_NAME=$(grep '^VERSION_NAME=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p signing
+          echo "$KEYSTORE_BASE64" | base64 -d > signing/release.jks
+
+      - name: Create keystore.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          cat > keystore.properties <<EOF
+          storeFile=signing/release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build signed release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK
+        id: apk
+        run: |
+          SRC=app/build/outputs/apk/release/app-release.apk
+          DEST=HydroForcePro-${{ steps.ver.outputs.code }}.apk
+          cp "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        id: notes
+        run: |
+          {
+            echo "versionCode=${{ steps.ver.outputs.code }}"
+            echo ""
+            echo "### ما الجديد في الإصدار ${{ steps.ver.outputs.name }}"
+            echo ""
+            PREV_TAG=$(git describe --tags --abbrev=0 "${{ steps.ver.outputs.tag }}^" 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              git log --pretty='- %s' "$PREV_TAG..HEAD" | grep -v 'Co-Authored-By' || true
+            else
+              git log --pretty='- %s' -n 15 | grep -v 'Co-Authored-By' || true
+            fi
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: HydroForce Pro ${{ steps.ver.outputs.name }}
+          body_path: RELEASE_NOTES.md
+          files: ${{ steps.apk.outputs.path }}
+          make_latest: true

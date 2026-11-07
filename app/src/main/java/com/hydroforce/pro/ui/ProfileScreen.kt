@@ -55,6 +55,8 @@ import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.data.formatClock
 import com.hydroforce.pro.data.formatDuration
 import com.hydroforce.pro.data.formatMl
+import com.hydroforce.pro.update.UpdateSection
+import com.hydroforce.pro.update.rememberUpdateController
 import java.util.Locale
 
 /** Shared by onboarding and settings: medical profile, container, and daily schedule. */
@@ -214,6 +216,11 @@ fun ProfileScreen(
         }
 
         ResultCard(result, cup)
+
+        if (!isOnboarding) {
+            val updateController = rememberUpdateController()
+            UpdateSection(updateController)
+        }
 
         Button(
             onClick = { onSave(draft) },

@@ -18,6 +18,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,6 +42,8 @@ import com.hydroforce.pro.ui.HydroTheme
 import com.hydroforce.pro.ui.MainViewModel
 import com.hydroforce.pro.ui.ProfileScreen
 import com.hydroforce.pro.ui.rememberPermissionStatus
+import com.hydroforce.pro.update.UpdateAvailableDialog
+import com.hydroforce.pro.update.rememberUpdateController
 
 class MainActivity : ComponentActivity() {
 
@@ -83,6 +86,11 @@ private fun HydroNavHost(vm: MainViewModel) {
     val now by vm.now.collectAsStateWithLifecycle()
     val ringing by vm.ringing.collectAsStateWithLifecycle()
     var permRefresh by remember { mutableIntStateOf(0) }
+
+    // Self-update: check GitHub once on launch and show a dialog if a newer release exists.
+    val updateController = rememberUpdateController()
+    LaunchedEffect(Unit) { updateController.check(silent = true) }
+    UpdateAvailableDialog(updateController)
 
     NavHost(navController = nav, startDestination = if (state) Routes.DASHBOARD else Routes.ONBOARDING) {
         composable(Routes.ONBOARDING) {
