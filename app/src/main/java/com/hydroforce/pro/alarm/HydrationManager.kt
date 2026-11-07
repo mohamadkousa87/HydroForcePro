@@ -4,8 +4,9 @@ import android.content.Context
 import com.hydroforce.pro.data.AppDatabase
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.IntakeLog
+import com.hydroforce.pro.data.CALL_POSTPONE_MINUTES
 import com.hydroforce.pro.data.MAX_SNOOZES
-import com.hydroforce.pro.data.SNOOZE_MINUTES
+import com.hydroforce.pro.data.RETRY_MINUTES
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 
@@ -25,7 +26,7 @@ object HydrationManager {
         val profile = repo.currentProfile()
         val result = HydrationCalculator.calculate(profile)
         val consumed = AppDatabase.get(context).intakeDao()
-            .totalSince(ScheduleMath.dayStart(anchor, profile))
+            .totalSince(ScheduleMath.calendarDayStart(anchor))
         val next = if (consumed >= result.targetMl) {
             ScheduleMath.nextWindowStart(anchor, profile)
         } else {
@@ -48,12 +49,16 @@ object HydrationManager {
         rescheduleFrom(context, now)
     }
 
-    /** Emergency snooze, limited to [MAX_SNOOZES] per alarm cycle. Returns false when exhausted. */
-    suspend fun snooze(context: Context): Boolean {
+    /**
+     * Snooze for [minutes], limited to [MAX_SNOOZES] per alarm cycle. Returns false when exhausted.
+     * Stays inside the waking window.
+     */
+    suspend fun snooze(context: Context, minutes: Int): Boolean {
         val repo = SettingsRepository(context)
         val used = repo.currentAlarmState().snoozeUsed
         if (used >= MAX_SNOOZES) return false
-        val at = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
+        val profile = repo.currentProfile()
+        val at = ScheduleMath.nextReminder(System.currentTimeMillis(), minutes, profile)
         repo.setSnoozeUsed(used + 1)
         AlarmScheduler.schedule(context, at)
         repo.setNextAlarm(at)
@@ -64,7 +69,19 @@ object HydrationManager {
     suspend fun scheduleRetry(context: Context) {
         val repo = SettingsRepository(context)
         val profile = repo.currentProfile()
-        val at = ScheduleMath.nextReminder(System.currentTimeMillis(), SNOOZE_MINUTES, profile)
+        val at = ScheduleMath.nextReminder(System.currentTimeMillis(), RETRY_MINUTES, profile)
+        AlarmScheduler.schedule(context, at)
+        repo.setNextAlarm(at)
+    }
+
+    /**
+     * Postpone the reminder by [minutes] without using a snooze — used when the alarm fires
+     * while the user is on a call. Stays inside the waking window.
+     */
+    suspend fun schedulePostpone(context: Context, minutes: Int = CALL_POSTPONE_MINUTES) {
+        val repo = SettingsRepository(context)
+        val profile = repo.currentProfile()
+        val at = ScheduleMath.nextReminder(System.currentTimeMillis(), minutes, profile)
         AlarmScheduler.schedule(context, at)
         repo.setNextAlarm(at)
     }

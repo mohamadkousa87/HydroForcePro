@@ -39,6 +39,10 @@ object ScheduleMath {
     fun dayStart(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Long =
         windowsAround(t, p, zone).last { it.start <= t }.start
 
+    /** Start of the current calendar day (local midnight). Daily progress resets here. */
+    fun calendarDayStart(t: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
+        Instant.ofEpochMilli(t).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+
     fun isAwake(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean =
         windowContaining(t, p, zone) != null
 

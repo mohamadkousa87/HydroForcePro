@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.hydroforce.pro.camera.CameraVerificationScreen
 import com.hydroforce.pro.data.AlarmState
 import com.hydroforce.pro.data.MAX_SNOOZES
-import com.hydroforce.pro.data.SNOOZE_MINUTES
+import com.hydroforce.pro.data.SNOOZE_OPTIONS
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroTheme
@@ -157,32 +157,44 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    if (HydrationManager.snooze(context)) {
-                        AlarmService.stop(context)
-                        Toast.makeText(context, "تم تأجيل التنبيه $SNOOZE_MINUTES دقيقة", Toast.LENGTH_SHORT).show()
-                        onDone()
+        if (snoozesLeft > 0) {
+            Text(
+                "⏰ تأجيل التنبيه — متبقٍ $snoozesLeft من $MAX_SNOOZES",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SNOOZE_OPTIONS.forEach { minutes ->
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                if (HydrationManager.snooze(context, minutes)) {
+                                    AlarmService.stop(context)
+                                    Toast.makeText(context, "تم تأجيل التنبيه $minutes دقائق", Toast.LENGTH_SHORT).show()
+                                    onDone()
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Text("⏰ $minutes دقائق", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
-            },
-            enabled = snoozesLeft > 0,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (snoozesLeft > 0) {
-                        "⏰ غفوة طارئة ($SNOOZE_MINUTES دقيقة) — متبقي $snoozesLeft من $MAX_SNOOZES"
-                    } else {
-                        "⛔ استُنفدت الغفوات الطارئة — التوثيق بالكاميرا إلزامي"
-                    },
-                    color = Color.White
-                )
             }
+        } else {
+            Text(
+                "⛔ استُنفدت مرات التأجيل — التوثيق بالكاميرا إلزامي",
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
         Spacer(Modifier.height(24.dp))
     }

@@ -34,5 +34,15 @@ data class AlarmState(
 )
 
 val CUP_SIZES = listOf(200, 250, 330, 500)
-const val MAX_SNOOZES = 2
-const val SNOOZE_MINUTES = 15
+
+/** Snooze durations (minutes) the user can pick at the alarm. */
+val SNOOZE_OPTIONS = listOf(5, 10)
+
+/** Max snoozes allowed per alarm cycle (softened strictness). */
+const val MAX_SNOOZES = 3
+
+/** Minutes to re-remind after an unanswered alarm times out. */
+const val RETRY_MINUTES = 10
+
+/** Minutes to postpone when the alarm fires while the user is on a phone/VoIP call. */
+const val CALL_POSTPONE_MINUTES = 5

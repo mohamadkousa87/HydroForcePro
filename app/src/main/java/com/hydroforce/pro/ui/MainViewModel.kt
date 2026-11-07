@@ -17,7 +17,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -51,8 +50,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), System.currentTimeMillis())
 
-    /** The hydration day restarts at wake-up time, so progress "resets" automatically then. */
-    private val dayStart = combine(profile, now) { p, t -> ScheduleMath.dayStart(t, p) }
+    /** Daily progress resets at local midnight (start of the calendar day). */
+    private val dayStart = now.map { ScheduleMath.calendarDayStart(it) }
         .distinctUntilChanged()
 
     val todayLogs: StateFlow<List<IntakeLog>> = dayStart

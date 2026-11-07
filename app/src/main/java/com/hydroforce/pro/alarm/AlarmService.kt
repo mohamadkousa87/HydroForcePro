@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -22,6 +23,8 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.hydroforce.pro.HydroApp
 import com.hydroforce.pro.R
+import com.hydroforce.pro.data.CALL_POSTPONE_MINUTES
+import com.hydroforce.pro.data.RETRY_MINUTES
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +47,7 @@ class AlarmService : LifecycleService() {
 
         private const val NOTIFICATION_ID = 42
         private const val MISSED_NOTIFICATION_ID = 43
+        private const val CALL_NOTIFICATION_ID = 44
         private const val RING_TIMEOUT_MS = 10L * 60 * 1000
 
         private val _ringing = MutableStateFlow(false)
@@ -89,10 +93,17 @@ class AlarmService : LifecycleService() {
         // Promote to foreground immediately with a provisional mode, then refine once the profile loads.
         val provisional = buildNotification(discreet = _discreet.value)
         goForeground(provisional)
-        _ringing.value = true
-        _muted.value = false
-        acquireWakeLock()
         lifecycleScope.launch {
+            // If the user is on a phone/VoIP call, don't ring — postpone and leave them in peace.
+            if (isBusyOnCall()) {
+                HydrationManager.schedulePostpone(applicationContext)
+                notifyPostponedForCall()
+                stopEverything()
+                return@launch
+            }
+            _ringing.value = true
+            _muted.value = false
+            acquireWakeLock()
             val repo = SettingsRepository(applicationContext)
             val profile = repo.currentProfile()
             val isDiscreet = ScheduleMath.isWorkTime(System.currentTimeMillis(), profile)
@@ -236,13 +247,36 @@ class AlarmService : LifecycleService() {
             .apply { acquire(RING_TIMEOUT_MS + 60_000L) }
     }
 
+    /** True when a cellular or VoIP call is active or ringing (no permission needed). */
+    private fun isBusyOnCall(): Boolean {
+        val am = getSystemService(AudioManager::class.java) ?: return false
+        return when (am.mode) {
+            AudioManager.MODE_IN_CALL,
+            AudioManager.MODE_IN_COMMUNICATION,
+            AudioManager.MODE_RINGTONE -> true
+            else -> false
+        }
+    }
+
+    private fun notifyPostponedForCall() {
+        val note = NotificationCompat.Builder(this, HydroApp.CHANNEL_MISSED)
+            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setContentTitle("تم تأجيل تنبيه الماء 📞")
+            .setContentText("أنت في مكالمة الآن — سيعاد التنبيه بعد $CALL_POSTPONE_MINUTES دقائق.")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(alarmIntent(_discreet.value))
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(CALL_NOTIFICATION_ID, note)
+    }
+
     private fun onRingTimeout() {
         lifecycleScope.launch {
             HydrationManager.scheduleRetry(applicationContext)
             val missed = NotificationCompat.Builder(this@AlarmService, HydroApp.CHANNEL_MISSED)
                 .setSmallIcon(R.drawable.ic_stat_drop)
                 .setContentTitle("فاتك تنبيه شرب الماء ⚠️")
-                .setContentText("سيعاد التنبيه بعد 15 دقيقة. اضغط لتوثيق الشرب الآن بالكاميرا.")
+                .setContentText("سيعاد التنبيه بعد $RETRY_MINUTES دقائق. اضغط لتوثيق الشرب الآن بالكاميرا.")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(alarmIntent(_discreet.value))
                 .setAutoCancel(true)
