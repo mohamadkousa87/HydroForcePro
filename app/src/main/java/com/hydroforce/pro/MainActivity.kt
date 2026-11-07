@@ -42,6 +42,8 @@ import com.hydroforce.pro.ui.HydroTheme
 import com.hydroforce.pro.ui.MainViewModel
 import com.hydroforce.pro.ui.MeetingsScreen
 import com.hydroforce.pro.ui.ProfileScreen
+import com.hydroforce.pro.ui.StatsScreen
+import com.hydroforce.pro.data.CsvExporter
 import com.hydroforce.pro.ui.rememberPermissionStatus
 import com.hydroforce.pro.update.UpdateAvailableDialog
 import com.hydroforce.pro.update.rememberUpdateController
@@ -68,6 +70,7 @@ private object Routes {
     const val SETTINGS = "settings"
     const val CAMERA = "camera"
     const val MEETINGS = "meetings"
+    const val STATS = "stats"
 }
 
 @Composable
@@ -121,9 +124,26 @@ private fun HydroNavHost(vm: MainViewModel) {
                     onPermissionsChanged = { permRefresh++ },
                     onDrinkNow = { nav.navigate(Routes.CAMERA) },
                     onSettings = { nav.navigate(Routes.SETTINGS) },
-                    onMeetings = { nav.navigate(Routes.MEETINGS) }
+                    onMeetings = { nav.navigate(Routes.MEETINGS) },
+                    onStats = { nav.navigate(Routes.STATS) }
                 )
             }
+        }
+        composable(Routes.STATS) {
+            val stats by vm.stats.collectAsStateWithLifecycle()
+            StatsScreen(
+                stats = stats,
+                onExport = {
+                    vm.exportCsv { file ->
+                        if (file != null) {
+                            CsvExporter.share(context, file)
+                        } else {
+                            Toast.makeText(context, "تعذّر تصدير السجل", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onBack = { nav.popBackStack() }
+            )
         }
         composable(Routes.MEETINGS) {
             val meetings by vm.meetings.collectAsStateWithLifecycle()

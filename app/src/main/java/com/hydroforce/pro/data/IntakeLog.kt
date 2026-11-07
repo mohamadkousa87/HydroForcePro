@@ -30,6 +30,12 @@ interface IntakeDao {
 
     @Query("SELECT COALESCE(SUM(amountMl), 0) FROM intake_logs WHERE timestamp >= :from")
     suspend fun totalSince(from: Long): Int
+
+    @Query("SELECT * FROM intake_logs ORDER BY timestamp ASC")
+    fun allLogsFlow(): Flow<List<IntakeLog>>
+
+    @Query("SELECT * FROM intake_logs ORDER BY timestamp DESC")
+    suspend fun allLogs(): List<IntakeLog>
 }
 
 @Database(entities = [IntakeLog::class], version = 1, exportSchema = false)

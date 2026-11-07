@@ -9,21 +9,26 @@ import com.hydroforce.pro.data.AlarmState
 import com.hydroforce.pro.data.AppDatabase
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
+import com.hydroforce.pro.data.CsvExporter
 import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
+import com.hydroforce.pro.data.StatsCalculator
+import com.hydroforce.pro.data.StatsData
 import com.hydroforce.pro.data.UserProfile
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -75,6 +80,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repo.removeMeeting(id)
             if (!AlarmService.ringing.value) HydrationManager.rescheduleFrom(getApplication())
+        }
+    }
+
+    val stats: StateFlow<StatsData?> = combine(dao.allLogsFlow(), profile) { logs, p ->
+        StatsCalculator.compute(logs, p, System.currentTimeMillis())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Writes the full intake log to a CSV file and returns it for sharing. */
+    fun exportCsv(onReady: (File?) -> Unit) {
+        viewModelScope.launch {
+            val file = runCatching {
+                CsvExporter.write(getApplication(), dao.allLogs())
+            }.getOrNull()
+            onReady(file)
         }
     }
 

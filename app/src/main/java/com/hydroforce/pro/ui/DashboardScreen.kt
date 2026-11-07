@@ -73,7 +73,8 @@ fun DashboardScreen(
     onPermissionsChanged: () -> Unit,
     onDrinkNow: () -> Unit,
     onSettings: () -> Unit,
-    onMeetings: () -> Unit
+    onMeetings: () -> Unit,
+    onStats: () -> Unit
 ) {
     val consumed = logs.sumOf { it.amountMl }
     Column(
@@ -104,14 +105,25 @@ fun DashboardScreen(
                     Text("(توثيق بالكاميرا وإعادة ضبط المؤقت)", fontSize = 13.sp)
                 }
             }
-            OutlinedButton(
-                onClick = onMeetings,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text("📅 جدولة اجتماع (تأجيل التنبيهات مؤقتاً)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onStats,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text("📊 الإحصائيات", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = onMeetings,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text("📅 الاجتماعات", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
             UrineColorGuide()
             TodayLogCard(logs)
