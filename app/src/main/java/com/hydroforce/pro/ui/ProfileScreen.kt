@@ -120,7 +120,7 @@ fun ProfileScreen(
             Text(
                 if (isOnboarding) "مرحباً بك في هايدرو فورس 💧" else "الملف الطبي والجدول",
                 style = MaterialTheme.typography.headlineMedium,
-                color = HydroDeep
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
         if (isOnboarding) {
@@ -170,7 +170,7 @@ fun ProfileScreen(
                     RadioButton(selected = activity == level, onClick = { activity = level })
                     Column(Modifier.weight(1f)) {
                         Text(level.label, fontWeight = FontWeight.SemiBold)
-                        Text(level.description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                        Text(level.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text("+${level.bonusMl} مل", color = HydroBlue, fontWeight = FontWeight.SemiBold)
                 }
@@ -204,7 +204,7 @@ fun ProfileScreen(
                     Text(
                         "اهتزاز ونغمة خفيفة مع زر كتم خلال ساعات العمل — والتوثيق بالكاميرا يبقى إلزامياً",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Switch(checked = workEnabled, onCheckedChange = { workEnabled = it })
@@ -218,6 +218,7 @@ fun ProfileScreen(
         ResultCard(result, cup)
 
         if (!isOnboarding) {
+            ThemeModeSection()
             val updateController = rememberUpdateController()
             UpdateSection(updateController)
         }
@@ -252,7 +253,7 @@ fun Section(title: String, content: @Composable () -> Unit) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             content()
         }
     }
@@ -305,7 +306,7 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 "${formatMl(result.targetMl)} مل يومياً",
                 style = MaterialTheme.typography.headlineMedium,
@@ -313,10 +314,10 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
             )
             Text(
                 "= ${result.cupsNeeded} كأس × $cup مل • تنبيه كل ${formatDuration(result.intervalMinutes)}",
-                color = HydroDeep
+                color = MaterialTheme.colorScheme.onSurface
             )
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            Text("لماذا هذا الهدف لجسمك؟", fontWeight = FontWeight.SemiBold, color = HydroDeep)
+            Text("لماذا هذا الهدف لجسمك؟", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             result.items.forEach { item ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {

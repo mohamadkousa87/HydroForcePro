@@ -55,11 +55,11 @@ fun StatsScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("→ رجوع") }
-            Text("📊 الإحصائيات والتاريخ", style = MaterialTheme.typography.headlineMedium, color = HydroDeep)
+            Text("📊 الإحصائيات والتاريخ", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
         }
 
         if (stats == null) {
-            Text("جارٍ حساب الإحصائيات...", color = Color.Gray)
+            Text("جارٍ حساب الإحصائيات...", color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
 
@@ -88,13 +88,13 @@ fun StatsScreen(
         // Weekly chart
         Card(
             shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp)) {
-                Text("آخر ${stats.days.size} أيام", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
-                Text("الخط المتقطّع = هدفك اليومي (${formatMl(stats.targetMl)} مل)", fontSize = 12.sp, color = Color.Gray)
+                Text("آخر ${stats.days.size} أيام", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text("الخط المتقطّع = هدفك اليومي (${formatMl(stats.targetMl)} مل)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 WeeklyBarChart(stats)
             }
@@ -121,8 +121,8 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
         modifier = modifier
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = HydroBlue)
-            Text(label, fontSize = 12.sp, color = HydroDeep)
+            Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }
@@ -136,7 +136,7 @@ private fun WeeklyBarChart(stats: StatsData) {
     val barColorMet = HydroMint
     val barColorMiss = HydroSky
     val targetColor = HydroWarn
-    val trackColor = Color(0xFFE3EEF8)
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
 
     Canvas(
         Modifier
@@ -182,10 +182,10 @@ private fun WeeklyBarChart(stats: StatsData) {
     Row(Modifier.fillMaxWidth()) {
         stats.days.forEach { day ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(dayFmt.format(Date(day.dayStartMillis)), fontSize = 11.sp, color = Color.Gray)
+                Text(dayFmt.format(Date(day.dayStartMillis)), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     String.format(Locale.US, "%.1fل", day.totalMl / 1000f),
-                    fontSize = 10.sp, color = HydroDeep, textAlign = TextAlign.Center
+                    fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center
                 )
             }
         }

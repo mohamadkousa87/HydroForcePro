@@ -87,7 +87,7 @@ fun MeetingsScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("→ رجوع") }
-            Text("📅 جدولة الاجتماعات", style = MaterialTheme.typography.headlineMedium, color = HydroDeep)
+            Text("📅 جدولة الاجتماعات", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
         }
         Text(
             "أضف أوقات اجتماعاتك فتُؤجَّل التنبيهات خلالها وتُستأنف بعد انتهائها مباشرةً.",
@@ -101,7 +101,7 @@ fun MeetingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("اجتماع جديد", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+                Text("اجتماع جديد", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it.take(40) },
@@ -156,21 +156,21 @@ fun MeetingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp)) {
-                Text("الاجتماعات القادمة", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+                Text("الاجتماعات القادمة", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(6.dp))
                 if (meetings.isEmpty()) {
-                    Text("لا توجد اجتماعات مجدولة.", color = Color.Gray)
+                    Text("لا توجد اجتماعات مجدولة.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     meetings.forEachIndexed { i, m ->
-                        if (i > 0) HorizontalDivider(color = Color(0xFFEFF3F7))
+                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                         Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     m.title.ifBlank { "اجتماع" },
                                     fontWeight = FontWeight.SemiBold,
-                                    color = HydroDeep
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(dateFmt.format(Date(m.startMillis)), fontSize = 13.sp, color = Color.Gray)
+                                Text(dateFmt.format(Date(m.startMillis)), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     "${timeFmt.format(Date(m.startMillis))} — ${timeFmt.format(Date(m.endMillis))}",
                                     fontSize = 13.sp,

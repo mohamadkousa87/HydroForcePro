@@ -161,10 +161,11 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
     val percent = (consumed * 100f / result.targetMl).toInt()
     Card(
         shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
+        val trackColor = MaterialTheme.colorScheme.surfaceVariant
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
@@ -172,7 +173,7 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
                     val inset = stroke / 2
                     val arcSize = Size(size.width - stroke, size.height - stroke)
                     drawArc(
-                        color = Color(0xFFE3EEF8),
+                        color = trackColor,
                         startAngle = -90f, sweepAngle = 360f, useCenter = false,
                         topLeft = Offset(inset, inset), size = arcSize,
                         style = Stroke(stroke, cap = StrokeCap.Round)
@@ -185,20 +186,20 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
                     )
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("$percent%", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = HydroDeep)
+                    Text("$percent%", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     Text("💧", fontSize = 18.sp)
                 }
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("تقدم اليوم", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+                Text("تقدم اليوم", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 Text(
                     "${formatMl(consumed)} / ${formatMl(result.targetMl)} مل",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = HydroBlue
                 )
-                Text("مل مستهلك / الهدف الطبي اليومي", fontSize = 12.sp, color = Color.Gray)
+                Text("مل مستهلك / الهدف الطبي اليومي", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("🥤 الأكواب: $cups من ${result.cupsNeeded}", fontWeight = FontWeight.SemiBold)
                 if (consumed >= result.targetMl) {
                     Text("🎉 حققت هدفك الطبي اليوم!", color = HydroMint, fontWeight = FontWeight.Bold)
@@ -298,12 +299,12 @@ private fun UrineColorGuide() {
     var selected by remember { mutableIntStateOf(-1) }
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("🧪 دليل ألوان البول للترطيب", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
-            Text("اضغط على اللون الأقرب لحالتك لمعرفة مستوى ترطيبك", fontSize = 13.sp, color = Color.Gray)
+            Text("🧪 دليل ألوان البول للترطيب", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text("اضغط على اللون الأقرب لحالتك لمعرفة مستوى ترطيبك", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 urineShades.forEachIndexed { i, shade ->
                     Box(
@@ -352,17 +353,17 @@ private fun TodayLogCard(logs: List<IntakeLog>) {
     val fmt = remember { SimpleDateFormat("hh:mm a", Locale("ar")) }
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("📒 سجل اليوم (موثق بالكاميرا)", style = MaterialTheme.typography.titleMedium, color = HydroDeep)
+            Text("📒 سجل اليوم (موثق بالكاميرا)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(6.dp))
             if (logs.isEmpty()) {
-                Text("لم يتم تسجيل أي كأس بعد اليوم.", color = Color.Gray)
+                Text("لم يتم تسجيل أي كأس بعد اليوم.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 logs.forEachIndexed { i, log ->
-                    if (i > 0) HorizontalDivider(color = Color(0xFFEFF3F7))
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                     Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (log.source == HydrationManager.SOURCE_ALARM) "🔔" else "📷", fontSize = 18.sp)
                         Spacer(Modifier.width(8.dp))
@@ -371,10 +372,10 @@ private fun TodayLogCard(logs: List<IntakeLog>) {
                             Text(
                                 if (log.source == HydrationManager.SOURCE_ALARM) "عند التنبيه" else "توثيق استباقي",
                                 fontSize = 12.sp,
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text(fmt.format(Date(log.timestamp)), color = Color.Gray)
+                        Text(fmt.format(Date(log.timestamp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

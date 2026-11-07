@@ -37,6 +37,15 @@ class SettingsRepository(context: Context) {
         val SNOOZE_USED = intPreferencesKey("snooze_used")
         val LAST_DRINK = longPreferencesKey("last_drink")
         val MEETINGS = stringPreferencesKey("meetings")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
+    }
+
+    val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
+        prefs[Keys.THEME_MODE]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
+    }
+
+    suspend fun setThemeMode(mode: ThemeMode) {
+        store.edit { it[Keys.THEME_MODE] = mode.name }
     }
 
     val onboarded: Flow<Boolean> = store.data.map { it[Keys.ONBOARDED] ?: false }
