@@ -28,6 +28,7 @@ import com.hydroforce.pro.data.CALL_POSTPONE_MINUTES
 import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.RETRY_MINUTES
+import com.hydroforce.pro.data.SNOOZE_OPTIONS
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.UserProfile
@@ -49,7 +50,9 @@ class AlarmService : LifecycleService() {
         const val ACTION_START = "com.hydroforce.pro.action.START"
         const val ACTION_MUTE = "com.hydroforce.pro.action.MUTE"
         const val ACTION_STOP = "com.hydroforce.pro.action.STOP"
+        const val ACTION_SNOOZE = "com.hydroforce.pro.action.SNOOZE"
         const val EXTRA_DISCREET = "discreet"
+        const val EXTRA_SNOOZE_MIN = "snooze_min"
 
         private const val NOTIFICATION_ID = 42
         private const val MISSED_NOTIFICATION_ID = 43
@@ -90,6 +93,15 @@ class AlarmService : LifecycleService() {
             ACTION_MUTE -> {
                 stopSound()
                 _muted.value = true
+            }
+            ACTION_SNOOZE -> {
+                stopSound()
+                val minutes = intent.getIntExtra(EXTRA_SNOOZE_MIN, SNOOZE_OPTIONS.first())
+                lifecycleScope.launch {
+                    val ok = HydrationManager.snooze(applicationContext, minutes)
+                    if (!ok) HydrationManager.scheduleRetry(applicationContext)
+                    stopEverything()
+                }
             }
             ACTION_STOP -> stopEverything()
             else -> if (!_ringing.value) stopSelf()
@@ -154,8 +166,19 @@ class AlarmService : LifecycleService() {
         )
     }
 
+    private fun snoozePendingIntent(minutes: Int): PendingIntent {
+        val intent = Intent(this, AlarmService::class.java)
+            .setAction(ACTION_SNOOZE)
+            .putExtra(EXTRA_SNOOZE_MIN, minutes)
+        return PendingIntent.getService(
+            this, 2002 + minutes, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     private fun buildNotification(discreet: Boolean): Notification {
         val pi = alarmIntent(discreet)
+        val snoozeMin = SNOOZE_OPTIONS.first()
         val text = if (discreet) {
             tr(lang, "وضع العمل الهادئ 💼 — وجّه الكاميرا نحو كأس الماء لإيقاف التنبيه", "Quiet work mode 💼 — point the camera at your water to stop the alarm")
         } else {
@@ -173,6 +196,12 @@ class AlarmService : LifecycleService() {
             .setAutoCancel(false)
             .setContentIntent(pi)
             .setFullScreenIntent(pi, true)
+            .addAction(R.drawable.ic_stat_drop, tr(lang, "📷 وثّق الآن", "📷 Verify now"), pi)
+            .addAction(
+                R.drawable.ic_stat_drop,
+                tr(lang, "💤 تأجيل $snoozeMin د", "💤 Snooze $snoozeMin min"),
+                snoozePendingIntent(snoozeMin)
+            )
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
