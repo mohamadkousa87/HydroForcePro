@@ -58,6 +58,7 @@ class AlarmService : LifecycleService() {
         private const val MISSED_NOTIFICATION_ID = 43
         private const val CALL_NOTIFICATION_ID = 44
         private const val MEETING_NOTIFICATION_ID = 45
+        private const val WATCH_NOTIFICATION_ID = 46
         private const val RING_TIMEOUT_MS = 10L * 60 * 1000
 
         private val _ringing = MutableStateFlow(false)
@@ -75,7 +76,10 @@ class AlarmService : LifecycleService() {
             if (_ringing.value) {
                 context.startService(Intent(context, AlarmService::class.java).setAction(ACTION_STOP))
             }
-            context.getSystemService(NotificationManager::class.java).cancel(MISSED_NOTIFICATION_ID)
+            context.getSystemService(NotificationManager::class.java).apply {
+                cancel(MISSED_NOTIFICATION_ID)
+                cancel(WATCH_NOTIFICATION_ID)
+            }
         }
     }
 
@@ -140,6 +144,7 @@ class AlarmService : LifecycleService() {
             HydrationManager.markAlarmRinging(applicationContext)
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildNotification(isDiscreet))
+            postWatchMirror(isDiscreet)
             stopSound()
             if (isDiscreet) playDiscreet(profile) else playEnforcer(profile)
             tryLaunchAlarmScreen(isDiscreet)
@@ -204,6 +209,35 @@ class AlarmService : LifecycleService() {
             )
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
+    }
+
+    /**
+     * A dismissible high-priority notification posted alongside the ongoing alarm notification.
+     * Paired watches (e.g. Huawei Health) relay normal notifications but skip ongoing foreground-service
+     * ones, so this is what actually reaches the wrist. Silent on the phone (the service handles sound).
+     */
+    private fun postWatchMirror(discreet: Boolean) {
+        val pi = alarmIntent(discreet)
+        val snoozeMin = SNOOZE_OPTIONS.first()
+        val text = tr(lang, "وجّه الكاميرا نحو كأس الماء لإيقاف التنبيه", "Point the camera at your water to stop the alarm")
+        val note = NotificationCompat.Builder(this, HydroApp.CHANNEL_WATCH)
+            .setSmallIcon(R.drawable.ic_stat_drop)
+            .setContentTitle(tr(lang, "حان وقت شرب الماء 💧", "Time to drink water 💧"))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .addAction(R.drawable.ic_stat_drop, tr(lang, "📷 وثّق الآن", "📷 Verify now"), pi)
+            .addAction(
+                R.drawable.ic_stat_drop,
+                tr(lang, "💤 تأجيل $snoozeMin د", "💤 Snooze $snoozeMin min"),
+                snoozePendingIntent(snoozeMin)
+            )
+            .build()
+        getSystemService(NotificationManager::class.java).notify(WATCH_NOTIFICATION_ID, note)
     }
 
     private fun tryLaunchAlarmScreen(discreet: Boolean) {
@@ -376,6 +410,7 @@ class AlarmService : LifecycleService() {
     private fun stopEverything() {
         handler.removeCallbacks(timeoutRunnable)
         stopSound()
+        getSystemService(NotificationManager::class.java).cancel(WATCH_NOTIFICATION_ID)
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         _ringing.value = false
