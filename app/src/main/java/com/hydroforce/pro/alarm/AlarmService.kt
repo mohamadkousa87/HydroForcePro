@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -29,6 +30,7 @@ import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.RETRY_MINUTES
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
+import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.data.covering
 import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -127,7 +129,7 @@ class AlarmService : LifecycleService() {
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildNotification(isDiscreet))
             stopSound()
-            if (isDiscreet) playDiscreet() else playEnforcer()
+            if (isDiscreet) playDiscreet(profile) else playEnforcer(profile)
             tryLaunchAlarmScreen(isDiscreet)
             handler.removeCallbacks(timeoutRunnable)
             handler.postDelayed(timeoutRunnable, RING_TIMEOUT_MS)
@@ -201,11 +203,20 @@ class AlarmService : LifecycleService() {
         vibrator().vibrate(VibrationEffect.createWaveform(pattern, amplitudes, 0), attrs)
     }
 
-    private fun playEnforcer() {
-        val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
+    private fun defaultAlarmUri(): Uri? =
+        RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        try {
+
+    /** The user-selected tone, shared by both ring modes; falls back to the system default alarm. */
+    private fun selectedUri(profile: UserProfile): Uri? =
+        profile.ringtoneUri.takeIf { it.isNotBlank() }
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            ?: defaultAlarmUri()
+
+    private fun startPlayer(uri: Uri?): Boolean {
+        if (uri == null) return false
+        return try {
             player = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -218,30 +229,49 @@ class AlarmService : LifecycleService() {
                 prepare()
                 start()
             }
+            true
         } catch (_: Exception) {
+            runCatching { player?.release() }
             player = null
+            false
         }
-        vibrate(
-            longArrayOf(0, 900, 400, 900, 400),
-            intArrayOf(0, 255, 0, 255, 0),
-            AudioAttributes.USAGE_ALARM
-        )
     }
 
-    private fun playDiscreet() {
-        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        chime = RingtoneManager.getRingtone(this, uri)?.apply {
+    private fun playEnforcer(profile: UserProfile) {
+        // Try the chosen tone; if it can't be played (e.g. a revoked file URI), use the default alarm.
+        if (!startPlayer(selectedUri(profile))) {
+            startPlayer(defaultAlarmUri())
+        }
+        if (profile.vibrationEnabled) {
+            vibrate(
+                longArrayOf(0, 900, 400, 900, 400),
+                intArrayOf(0, 255, 0, 255, 0),
+                AudioAttributes.USAGE_ALARM
+            )
+        }
+    }
+
+    private fun playDiscreet(profile: UserProfile) {
+        val uri = selectedUri(profile)
+        chime = runCatching { uri?.let { RingtoneManager.getRingtone(this, it) } }.getOrNull()?.apply {
             audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
-            play()
+            runCatching { play() }
         }
-        vibrate(
-            longArrayOf(0, 250, 200, 250, 6000),
-            intArrayOf(0, 120, 0, 120, 0),
-            AudioAttributes.USAGE_NOTIFICATION
-        )
+        if (chime == null) {
+            chime = runCatching {
+                RingtoneManager.getRingtone(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            }.getOrNull()?.apply { runCatching { play() } }
+        }
+        if (profile.vibrationEnabled) {
+            vibrate(
+                longArrayOf(0, 250, 200, 250, 6000),
+                intArrayOf(0, 120, 0, 120, 0),
+                AudioAttributes.USAGE_NOTIFICATION
+            )
+        }
     }
 
     private fun stopSound() {

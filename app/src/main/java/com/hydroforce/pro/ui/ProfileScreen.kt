@@ -1,6 +1,12 @@
 package com.hydroforce.pro.ui
 
+import android.app.Activity
 import android.app.TimePickerDialog
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -80,6 +86,8 @@ fun ProfileScreen(
     var workEnabled by rememberSaveable { mutableStateOf(initial.workModeEnabled) }
     var workStart by rememberSaveable { mutableIntStateOf(initial.workStartMinutes) }
     var workEnd by rememberSaveable { mutableIntStateOf(initial.workEndMinutes) }
+    var ringtoneUri by rememberSaveable { mutableStateOf(initial.ringtoneUri) }
+    var vibration by rememberSaveable { mutableStateOf(initial.vibrationEnabled) }
 
     val age = ageText.toIntOrNull()
     val weight = weightText.replace(',', '.').toFloatOrNull()
@@ -101,7 +109,9 @@ fun ProfileScreen(
         sleepMinutes = sleep,
         workModeEnabled = workEnabled,
         workStartMinutes = workStart,
-        workEndMinutes = workEnd
+        workEndMinutes = workEnd,
+        ringtoneUri = ringtoneUri,
+        vibrationEnabled = vibration
     )
     val lang = LocalLanguage.current
     val result = HydrationCalculator.calculate(draft, lang)
@@ -230,6 +240,13 @@ fun ProfileScreen(
             }
         }
 
+        AlarmSoundSection(
+            ringtoneUri = ringtoneUri,
+            vibration = vibration,
+            onRingtoneChange = { ringtoneUri = it },
+            onVibrationChange = { vibration = it }
+        )
+
         ResultCard(result, cup, title = tr("📋 هدفك الطبي اليومي", "📋 Your daily medical goal"))
 
         if (!isOnboarding) {
@@ -257,6 +274,107 @@ private fun bmiLabel(bmi: Float, lang: Language) = when {
     bmi < 25f -> if (lang == Language.EN) "Normal" else "طبيعي"
     bmi < 30f -> if (lang == Language.EN) "Overweight" else "زيادة وزن"
     else -> if (lang == Language.EN) "Obese" else "سمنة"
+}
+
+@Composable
+private fun AlarmSoundSection(
+    ringtoneUri: String,
+    vibration: Boolean,
+    onRingtoneChange: (String) -> Unit,
+    onVibrationChange: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+
+    val defaultLabel = tr("الافتراضي (نغمة منبه النظام)", "Default (system alarm tone)")
+    val customLabel = tr("نغمة مخصصة محدّدة", "Custom tone selected")
+    val ringtoneTitle = remember(ringtoneUri, defaultLabel, customLabel) {
+        when {
+            ringtoneUri.isBlank() -> defaultLabel
+            else -> runCatching {
+                RingtoneManager.getRingtone(context, Uri.parse(ringtoneUri))?.getTitle(context)
+            }.getOrNull() ?: customLabel
+        }
+    }
+
+    val pickRingtone = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            val uri: Uri? = res.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            onRingtoneChange(uri?.toString() ?: "")
+        }
+    }
+
+    val pickAudioFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onRingtoneChange(uri.toString())
+        }
+    }
+
+    val pickerTitle = tr("اختر نغمة التنبيه", "Choose alarm tone")
+
+    Section(tr("🔔 نغمة التنبيه والاهتزاز", "🔔 Alarm tone & vibration")) {
+        Text(tr("النغمة الحالية:", "Current tone:"), style = MaterialTheme.typography.labelLarge)
+        Text(ringtoneTitle, fontWeight = FontWeight.SemiBold, color = HydroBlue)
+        Text(
+            tr("تُستخدم نفس النغمة في الوضع العادي والوضع الهادئ.", "The same tone is used in both normal and quiet modes."),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                        putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_TYPE,
+                            RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_NOTIFICATION or RingtoneManager.TYPE_RINGTONE
+                        )
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, pickerTitle)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                        putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                            ringtoneUri.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+                        )
+                    }
+                    pickRingtone.launch(intent)
+                },
+                border = BorderStroke(1.dp, HydroBlue),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f)
+            ) { Text(tr("نغمات الجهاز", "Device tones")) }
+            androidx.compose.material3.OutlinedButton(
+                onClick = { pickAudioFile.launch(arrayOf("audio/*")) },
+                border = BorderStroke(1.dp, HydroBlue),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f)
+            ) { Text(tr("ملف صوتي", "Audio file")) }
+        }
+        if (ringtoneUri.isNotBlank()) {
+            TextButton(onClick = { onRingtoneChange("") }) {
+                Text(tr("إعادة للنغمة الافتراضية", "Reset to default tone"))
+            }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(tr("📳 الاهتزاز", "📳 Vibration"), fontWeight = FontWeight.SemiBold)
+                Text(
+                    tr("اهتزاز الجهاز مع التنبيه", "Vibrate the device with the alarm"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = vibration, onCheckedChange = onVibrationChange)
+        }
+    }
 }
 
 @Composable

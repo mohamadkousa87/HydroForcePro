@@ -35,7 +35,10 @@ data class UserProfile(
     val sleepMinutes: Int = 23 * 60,
     val workModeEnabled: Boolean = true,
     val workStartMinutes: Int = 8 * 60 + 30,
-    val workEndMinutes: Int = 17 * 60 + 30
+    val workEndMinutes: Int = 17 * 60 + 30,
+    /** URI of the chosen alarm tone; empty = system default alarm tone. Used in both ring modes. */
+    val ringtoneUri: String = "",
+    val vibrationEnabled: Boolean = true
 )
 
 data class AlarmState(

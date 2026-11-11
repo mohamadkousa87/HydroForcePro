@@ -39,6 +39,8 @@ class SettingsRepository(context: Context) {
         val MEETINGS = stringPreferencesKey("meetings")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val LANGUAGE = stringPreferencesKey("language")
+        val RINGTONE = stringPreferencesKey("ringtone_uri")
+        val VIBRATION = booleanPreferencesKey("vibration_enabled")
     }
 
     val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
@@ -113,6 +115,8 @@ class SettingsRepository(context: Context) {
             it[Keys.WORK_ENABLED] = p.workModeEnabled
             it[Keys.WORK_START] = p.workStartMinutes
             it[Keys.WORK_END] = p.workEndMinutes
+            it[Keys.RINGTONE] = p.ringtoneUri
+            it[Keys.VIBRATION] = p.vibrationEnabled
         }
     }
 
@@ -141,7 +145,9 @@ class SettingsRepository(context: Context) {
             sleepMinutes = this[Keys.SLEEP] ?: d.sleepMinutes,
             workModeEnabled = this[Keys.WORK_ENABLED] ?: d.workModeEnabled,
             workStartMinutes = this[Keys.WORK_START] ?: d.workStartMinutes,
-            workEndMinutes = this[Keys.WORK_END] ?: d.workEndMinutes
+            workEndMinutes = this[Keys.WORK_END] ?: d.workEndMinutes,
+            ringtoneUri = this[Keys.RINGTONE] ?: d.ringtoneUri,
+            vibrationEnabled = this[Keys.VIBRATION] ?: d.vibrationEnabled
         )
     }
 }
