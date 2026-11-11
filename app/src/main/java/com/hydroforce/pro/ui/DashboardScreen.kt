@@ -78,6 +78,7 @@ fun DashboardScreen(
     onSettings: () -> Unit,
     onMeetings: () -> Unit,
     onStats: () -> Unit,
+    onTips: () -> Unit,
     selectedDrinkType: DrinkType,
     onDrinkTypeSelected: (DrinkType) -> Unit
 ) {
@@ -151,6 +152,15 @@ fun DashboardScreen(
                 ) {
                     Text(tr("📅 الاجتماعات", "📅 Meetings"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
+            }
+            OutlinedButton(
+                onClick = onTips,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text(tr("💡 نصائح صحة الترطيب", "💡 Hydration health tips"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             UrineColorGuide()
             TodayLogCard(logs)

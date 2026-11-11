@@ -40,6 +40,7 @@ import com.hydroforce.pro.data.formatMl
 import com.hydroforce.pro.ui.DashboardScreen
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroTheme
+import com.hydroforce.pro.ui.HydrationTipsScreen
 import com.hydroforce.pro.ui.MainViewModel
 import com.hydroforce.pro.ui.MeetingsScreen
 import com.hydroforce.pro.ui.ProfileScreen
@@ -74,6 +75,7 @@ private object Routes {
     const val CAMERA = "camera"
     const val MEETINGS = "meetings"
     const val STATS = "stats"
+    const val TIPS = "tips"
 }
 
 @Composable
@@ -131,10 +133,14 @@ private fun HydroNavHost(vm: MainViewModel) {
                     onSettings = { nav.navigate(Routes.SETTINGS) },
                     onMeetings = { nav.navigate(Routes.MEETINGS) },
                     onStats = { nav.navigate(Routes.STATS) },
+                    onTips = { nav.navigate(Routes.TIPS) },
                     selectedDrinkType = drinkType,
                     onDrinkTypeSelected = { vm.setDrinkType(it) }
                 )
             }
+        }
+        composable(Routes.TIPS) {
+            HydrationTipsScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.STATS) {
             val stats by vm.stats.collectAsStateWithLifecycle()
