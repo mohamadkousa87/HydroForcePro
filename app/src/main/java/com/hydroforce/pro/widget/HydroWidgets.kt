@@ -1,6 +1,7 @@
 package com.hydroforce.pro.widget
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,7 +63,9 @@ private suspend fun loadWidgetData(context: Context): WidgetData {
     return WidgetData(consumed, result.targetMl, percent, alarm.nextAlarmAt, true, lang)
 }
 
-private fun openApp() = actionStartActivity<MainActivity>()
+private fun openApp(context: Context) = actionStartActivity(
+    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+)
 
 /** Refreshes every widget; call whenever intake or the next alarm changes. */
 suspend fun updateAllHydroWidgets(context: Context) {
@@ -79,7 +82,7 @@ class TodayProgressWidget : GlanceAppWidget() {
         provideContent {
             Column(
                 modifier = GlanceModifier.fillMaxSize().background(DEEP).cornerRadius(20.dp)
-                    .padding(14.dp).clickable(openApp()),
+                    .padding(14.dp).clickable(openApp(context)),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -119,7 +122,7 @@ class NextReminderWidget : GlanceAppWidget() {
         provideContent {
             Column(
                 modifier = GlanceModifier.fillMaxSize().background(BLUE).cornerRadius(20.dp)
-                    .padding(14.dp).clickable(openApp()),
+                    .padding(14.dp).clickable(openApp(context)),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -152,7 +155,7 @@ class QuickButtonWidget : GlanceAppWidget() {
         provideContent {
             Box(
                 modifier = GlanceModifier.fillMaxSize().background(BLUE).cornerRadius(24.dp)
-                    .clickable(openApp()),
+                    .clickable(openApp(context)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
