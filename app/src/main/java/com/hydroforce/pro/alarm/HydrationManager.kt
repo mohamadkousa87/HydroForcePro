@@ -14,6 +14,7 @@ import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.data.covering
+import com.hydroforce.pro.widget.updateAllHydroWidgets
 
 /** Single place that mutates intake + alarm state, shared by activities, the service and receivers. */
 object HydrationManager {
@@ -44,6 +45,7 @@ object HydrationManager {
         val at = adjustForMeetings(base, repo.currentMeetings(), profile)
         AlarmScheduler.schedule(context, at)
         repo.setNextAlarm(at)
+        updateAllHydroWidgets(context)
         return at
     }
 

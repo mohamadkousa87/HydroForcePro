@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_progress_desc">Today\'s water progress</string>
+    <string name="widget_next_desc">Next reminder time</string>
+    <string name="widget_button_desc">Quick open the hydration app</string>
+</resources>

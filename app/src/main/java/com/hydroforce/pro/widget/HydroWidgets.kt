@@ -1,0 +1,169 @@
+package com.hydroforce.pro.widget
+
+import android.content.Context
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.glance.GlanceId
+import androidx.glance.GlanceModifier
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.updateAll
+import androidx.glance.background
+import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.padding
+import androidx.glance.text.FontWeight
+import androidx.glance.text.Text
+import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
+import com.hydroforce.pro.MainActivity
+import com.hydroforce.pro.data.AppDatabase
+import com.hydroforce.pro.data.HydrationCalculator
+import com.hydroforce.pro.data.Language
+import com.hydroforce.pro.data.ScheduleMath
+import com.hydroforce.pro.data.SettingsRepository
+import com.hydroforce.pro.data.formatMl
+import com.hydroforce.pro.ui.tr
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private val DEEP = Color(0xFF0B4F8A)
+private val BLUE = Color(0xFF0B6FC2)
+private val SKY = Color(0xFF7FD3FF)
+private val WHITE = Color(0xFFFFFFFF)
+
+private data class WidgetData(
+    val consumed: Int,
+    val target: Int,
+    val percent: Int,
+    val nextAlarmAt: Long,
+    val onboarded: Boolean,
+    val lang: Language
+)
+
+private suspend fun loadWidgetData(context: Context): WidgetData {
+    val repo = SettingsRepository(context)
+    val lang = repo.currentLanguage()
+    if (!repo.isOnboarded()) return WidgetData(0, 0, 0, 0L, false, lang)
+    val profile = repo.currentProfile()
+    val result = HydrationCalculator.calculate(profile)
+    val consumed = AppDatabase.get(context).intakeDao()
+        .totalSince(ScheduleMath.calendarDayStart(System.currentTimeMillis()))
+    val alarm = repo.currentAlarmState()
+    val percent = if (result.targetMl > 0) (consumed * 100 / result.targetMl).coerceIn(0, 100) else 0
+    return WidgetData(consumed, result.targetMl, percent, alarm.nextAlarmAt, true, lang)
+}
+
+private fun openApp() = actionStartActivity<MainActivity>()
+
+/** Refreshes every widget; call whenever intake or the next alarm changes. */
+suspend fun updateAllHydroWidgets(context: Context) {
+    TodayProgressWidget().updateAll(context)
+    NextReminderWidget().updateAll(context)
+    QuickButtonWidget().updateAll(context)
+}
+
+// ---------- Widget 1: today's progress ----------
+
+class TodayProgressWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val d = loadWidgetData(context)
+        provideContent {
+            Column(
+                modifier = GlanceModifier.fillMaxSize().background(DEEP).cornerRadius(20.dp)
+                    .padding(14.dp).clickable(openApp()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    tr(d.lang, "💧 تقدم اليوم", "💧 Today"),
+                    style = TextStyle(color = ColorProvider(SKY), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    "${d.percent}%",
+                    style = TextStyle(color = ColorProvider(WHITE), fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    if (d.onboarded) tr(d.lang, "${formatMl(d.consumed)} / ${formatMl(d.target)} مل", "${formatMl(d.consumed)} / ${formatMl(d.target)} ml")
+                    else tr(d.lang, "افتح التطبيق للإعداد", "Open the app to set up"),
+                    style = TextStyle(color = ColorProvider(WHITE), fontSize = 13.sp)
+                )
+            }
+        }
+    }
+}
+
+class TodayProgressReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = TodayProgressWidget()
+}
+
+// ---------- Widget 2: next reminder ----------
+
+class NextReminderWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val d = loadWidgetData(context)
+        val locale = if (d.lang == Language.EN) Locale.ENGLISH else Locale("ar")
+        val timeText = when {
+            !d.onboarded -> "—"
+            d.nextAlarmAt <= System.currentTimeMillis() -> tr(d.lang, "قريباً", "Soon")
+            else -> SimpleDateFormat("hh:mm a", locale).format(Date(d.nextAlarmAt))
+        }
+        provideContent {
+            Column(
+                modifier = GlanceModifier.fillMaxSize().background(BLUE).cornerRadius(20.dp)
+                    .padding(14.dp).clickable(openApp()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    tr(d.lang, "⏱️ التنبيه القادم", "⏱️ Next reminder"),
+                    style = TextStyle(color = ColorProvider(WHITE), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    timeText,
+                    style = TextStyle(color = ColorProvider(WHITE), fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    tr(d.lang, "شرب الماء 💧", "Drink water 💧"),
+                    style = TextStyle(color = ColorProvider(SKY), fontSize = 12.sp)
+                )
+            }
+        }
+    }
+}
+
+class NextReminderReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = NextReminderWidget()
+}
+
+// ---------- Widget 3: quick open button ----------
+
+class QuickButtonWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val d = loadWidgetData(context)
+        provideContent {
+            Box(
+                modifier = GlanceModifier.fillMaxSize().background(BLUE).cornerRadius(24.dp)
+                    .clickable(openApp()),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    tr(d.lang, "💧 شربت ماء", "💧 I drank water"),
+                    style = TextStyle(color = ColorProvider(WHITE), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+    }
+}
+
+class QuickButtonReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = QuickButtonWidget()
+}
