@@ -88,6 +88,13 @@ fun ProfileScreen(
     var workEnd by rememberSaveable { mutableIntStateOf(initial.workEndMinutes) }
     var ringtoneUri by rememberSaveable { mutableStateOf(initial.ringtoneUri) }
     var vibration by rememberSaveable { mutableStateOf(initial.vibrationEnabled) }
+    var mealsEnabled by rememberSaveable { mutableStateOf(initial.mealsEnabled) }
+    var breakfast by rememberSaveable { mutableIntStateOf(initial.breakfastMinutes) }
+    var lunch by rememberSaveable { mutableIntStateOf(initial.lunchMinutes) }
+    var dinner by rememberSaveable { mutableIntStateOf(initial.dinnerMinutes) }
+    var breakfastOn by rememberSaveable { mutableStateOf(initial.breakfastOn) }
+    var lunchOn by rememberSaveable { mutableStateOf(initial.lunchOn) }
+    var dinnerOn by rememberSaveable { mutableStateOf(initial.dinnerOn) }
 
     val age = ageText.toIntOrNull()
     val weight = weightText.replace(',', '.').toFloatOrNull()
@@ -111,7 +118,14 @@ fun ProfileScreen(
         workStartMinutes = workStart,
         workEndMinutes = workEnd,
         ringtoneUri = ringtoneUri,
-        vibrationEnabled = vibration
+        vibrationEnabled = vibration,
+        mealsEnabled = mealsEnabled,
+        breakfastMinutes = breakfast,
+        lunchMinutes = lunch,
+        dinnerMinutes = dinner,
+        breakfastOn = breakfastOn,
+        lunchOn = lunchOn,
+        dinnerOn = dinnerOn
     )
     val lang = LocalLanguage.current
     val result = HydrationCalculator.calculate(draft, lang)
@@ -247,6 +261,26 @@ fun ProfileScreen(
             onVibrationChange = { vibration = it }
         )
 
+        Section(tr("🍽️ التوقف حول الوجبات", "🍽️ Pause around meals")) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(tr("إيقاف التنبيهات وقت الأكل", "Pause reminders at meal times"), fontWeight = FontWeight.SemiBold)
+                    Text(
+                        tr("يتوقف التنبيه 30 دقيقة قبل الوجبة و45 دقيقة بعدها.", "Reminders stop 30 min before and 45 min after each meal."),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = mealsEnabled, onCheckedChange = { mealsEnabled = it })
+            }
+            if (mealsEnabled) {
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                MealRow(tr("🍳 الفطور", "🍳 Breakfast"), breakfastOn, breakfast, { breakfastOn = it }) { breakfast = it }
+                MealRow(tr("🍚 الغداء", "🍚 Lunch"), lunchOn, lunch, { lunchOn = it }) { lunch = it }
+                MealRow(tr("🍲 العشاء", "🍲 Dinner"), dinnerOn, dinner, { dinnerOn = it }) { dinner = it }
+            }
+        }
+
         ResultCard(result, cup, title = tr("📋 هدفك الطبي اليومي", "📋 Your daily medical goal"))
 
         if (!isOnboarding) {
@@ -274,6 +308,31 @@ private fun bmiLabel(bmi: Float, lang: Language) = when {
     bmi < 25f -> if (lang == Language.EN) "Normal" else "طبيعي"
     bmi < 30f -> if (lang == Language.EN) "Overweight" else "زيادة وزن"
     else -> if (lang == Language.EN) "Obese" else "سمنة"
+}
+
+@Composable
+private fun MealRow(
+    label: String,
+    enabled: Boolean,
+    minutes: Int,
+    onEnabledChange: (Boolean) -> Unit,
+    onPick: (Int) -> Unit
+) {
+    val context = LocalContext.current
+    val lang = LocalLanguage.current
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Switch(checked = enabled, onCheckedChange = onEnabledChange)
+        Spacer(Modifier.width(8.dp))
+        Text(label, Modifier.weight(1f), color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+        androidx.compose.material3.OutlinedButton(
+            onClick = {
+                TimePickerDialog(context, { _, h, m -> onPick(h * 60 + m) }, minutes / 60, minutes % 60, false).show()
+            },
+            enabled = enabled,
+            border = BorderStroke(1.dp, HydroBlue),
+            shape = RoundedCornerShape(12.dp)
+        ) { Text(formatClock(minutes, lang)) }
+    }
 }
 
 @Composable

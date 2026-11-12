@@ -29,13 +29,22 @@ object HydrationManager {
     private fun adjustForMeetings(at: Long, meetings: List<Meeting>, profile: UserProfile): Long {
         var t = at
         var guard = 0
-        while (guard++ < 40) {
+        while (guard++ < 60) {
             if (!ScheduleMath.isAwake(t, profile)) {
                 t = ScheduleMath.nextWindowStart(t, profile)
                 continue
             }
-            val m = meetings.covering(t) ?: break
-            t = m.endMillis
+            val mealEnd = ScheduleMath.mealPauseEnd(t, profile)
+            if (mealEnd != null) {
+                t = mealEnd
+                continue
+            }
+            val m = meetings.covering(t)
+            if (m != null) {
+                t = m.endMillis
+                continue
+            }
+            break
         }
         return t
     }

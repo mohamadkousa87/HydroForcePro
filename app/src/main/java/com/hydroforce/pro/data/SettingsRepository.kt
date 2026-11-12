@@ -41,6 +41,13 @@ class SettingsRepository(context: Context) {
         val LANGUAGE = stringPreferencesKey("language")
         val RINGTONE = stringPreferencesKey("ringtone_uri")
         val VIBRATION = booleanPreferencesKey("vibration_enabled")
+        val MEALS_ENABLED = booleanPreferencesKey("meals_enabled")
+        val BREAKFAST = intPreferencesKey("breakfast_min")
+        val LUNCH = intPreferencesKey("lunch_min")
+        val DINNER = intPreferencesKey("dinner_min")
+        val BREAKFAST_ON = booleanPreferencesKey("breakfast_on")
+        val LUNCH_ON = booleanPreferencesKey("lunch_on")
+        val DINNER_ON = booleanPreferencesKey("dinner_on")
     }
 
     val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
@@ -117,6 +124,13 @@ class SettingsRepository(context: Context) {
             it[Keys.WORK_END] = p.workEndMinutes
             it[Keys.RINGTONE] = p.ringtoneUri
             it[Keys.VIBRATION] = p.vibrationEnabled
+            it[Keys.MEALS_ENABLED] = p.mealsEnabled
+            it[Keys.BREAKFAST] = p.breakfastMinutes
+            it[Keys.LUNCH] = p.lunchMinutes
+            it[Keys.DINNER] = p.dinnerMinutes
+            it[Keys.BREAKFAST_ON] = p.breakfastOn
+            it[Keys.LUNCH_ON] = p.lunchOn
+            it[Keys.DINNER_ON] = p.dinnerOn
         }
     }
 
@@ -147,7 +161,14 @@ class SettingsRepository(context: Context) {
             workStartMinutes = this[Keys.WORK_START] ?: d.workStartMinutes,
             workEndMinutes = this[Keys.WORK_END] ?: d.workEndMinutes,
             ringtoneUri = this[Keys.RINGTONE] ?: d.ringtoneUri,
-            vibrationEnabled = this[Keys.VIBRATION] ?: d.vibrationEnabled
+            vibrationEnabled = this[Keys.VIBRATION] ?: d.vibrationEnabled,
+            mealsEnabled = this[Keys.MEALS_ENABLED] ?: d.mealsEnabled,
+            breakfastMinutes = this[Keys.BREAKFAST] ?: d.breakfastMinutes,
+            lunchMinutes = this[Keys.LUNCH] ?: d.lunchMinutes,
+            dinnerMinutes = this[Keys.DINNER] ?: d.dinnerMinutes,
+            breakfastOn = this[Keys.BREAKFAST_ON] ?: d.breakfastOn,
+            lunchOn = this[Keys.LUNCH_ON] ?: d.lunchOn,
+            dinnerOn = this[Keys.DINNER_ON] ?: d.dinnerOn
         )
     }
 }

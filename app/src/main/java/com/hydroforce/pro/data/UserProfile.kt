@@ -38,8 +38,24 @@ data class UserProfile(
     val workEndMinutes: Int = 17 * 60 + 30,
     /** URI of the chosen alarm tone; empty = system default alarm tone. Used in both ring modes. */
     val ringtoneUri: String = "",
-    val vibrationEnabled: Boolean = true
+    val vibrationEnabled: Boolean = true,
+    /** Pause reminders around meals (30 min before, 45 min after each enabled meal). */
+    val mealsEnabled: Boolean = false,
+    val breakfastMinutes: Int = 8 * 60,
+    val lunchMinutes: Int = 13 * 60,
+    val dinnerMinutes: Int = 20 * 60,
+    val breakfastOn: Boolean = true,
+    val lunchOn: Boolean = true,
+    val dinnerOn: Boolean = true
 )
+
+/** Enabled meal times (minutes-of-day) to pause reminders around; empty when the feature is off. */
+fun UserProfile.enabledMealTimes(): List<Int> =
+    if (!mealsEnabled) emptyList() else buildList {
+        if (breakfastOn) add(breakfastMinutes)
+        if (lunchOn) add(lunchMinutes)
+        if (dinnerOn) add(dinnerMinutes)
+    }
 
 data class AlarmState(
     val nextAlarmAt: Long = 0L,
@@ -51,6 +67,10 @@ val CUP_SIZES = listOf(200, 250, 330, 400, 500)
 
 /** Reminders are never scheduled closer together than this (gentler on digestion). */
 const val MIN_INTERVAL_MINUTES = 120
+
+/** Meal pause window: stop reminders this many minutes before and after each enabled meal. */
+const val MEAL_PAUSE_BEFORE_MINUTES = 30
+const val MEAL_PAUSE_AFTER_MINUTES = 45
 
 /** Snooze durations (minutes) the user can pick at the alarm. */
 val SNOOZE_OPTIONS = listOf(5, 10)

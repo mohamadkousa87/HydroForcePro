@@ -53,6 +53,27 @@ object ScheduleMath {
         return if (candidate < window.end) candidate else nextWindowStart(anchor, p, zone)
     }
 
+    /**
+     * If [t] falls inside a meal-pause window (30 min before to 45 min after an enabled meal),
+     * returns the absolute end of that window; otherwise null. Checks the current and previous day
+     * so a window spanning midnight is still caught.
+     */
+    fun mealPauseEnd(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Long? {
+        val meals = p.enabledMealTimes()
+        if (meals.isEmpty()) return null
+        val date = Instant.ofEpochMilli(t).atZone(zone).toLocalDate()
+        for (d in listOf(date.minusDays(1), date)) {
+            for (meal in meals) {
+                val mealAt = d.atTime(LocalTime.of(meal / 60, meal % 60))
+                    .atZone(zone).toInstant().toEpochMilli()
+                val start = mealAt - MEAL_PAUSE_BEFORE_MINUTES * 60_000L
+                val end = mealAt + MEAL_PAUSE_AFTER_MINUTES * 60_000L
+                if (t in start until end) return end
+            }
+        }
+        return null
+    }
+
     fun minuteOfDay(t: Long, zone: ZoneId = ZoneId.systemDefault()): Int {
         val time = Instant.ofEpochMilli(t).atZone(zone).toLocalTime()
         return time.hour * 60 + time.minute
