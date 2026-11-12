@@ -15,9 +15,9 @@ enum class ActivityLevel(
     val bonusMl: Int
 ) {
     SEDENTARY("خامل", "Sedentary", "عمل مكتبي وحركة قليلة", "Desk work, little movement", 0),
-    LIGHT("خفيف", "Light", "مشي أو تمارين خفيفة 1-3 أيام", "Walking or light exercise 1-3 days", 300),
-    MODERATE("متوسط", "Moderate", "تمارين متوسطة 3-5 أيام", "Moderate exercise 3-5 days", 500),
-    HIGH("عالٍ / جيم", "High / Gym", "تمارين شاقة أو جيم يومي", "Hard training or daily gym", 800);
+    LIGHT("خفيف", "Light", "مشي أو تمارين خفيفة 1-3 أيام", "Walking or light exercise 1-3 days", 150),
+    MODERATE("متوسط", "Moderate", "تمارين متوسطة 3-5 أيام", "Moderate exercise 3-5 days", 300),
+    HIGH("عالٍ / جيم", "High / Gym", "تمارين شاقة أو جيم يومي", "Hard training or daily gym", 500);
 
     fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
     fun description(lang: Language): String = if (lang == Language.EN) descriptionEn else description
@@ -30,7 +30,7 @@ data class UserProfile(
     val weightKg: Float = 70f,
     val heightCm: Int = 170,
     val activity: ActivityLevel = ActivityLevel.SEDENTARY,
-    val cupSizeMl: Int = 250,
+    val cupSizeMl: Int = 400,
     val wakeMinutes: Int = 7 * 60,
     val sleepMinutes: Int = 23 * 60,
     val workModeEnabled: Boolean = true,
@@ -47,7 +47,10 @@ data class AlarmState(
     val lastDrinkAt: Long = 0L
 )
 
-val CUP_SIZES = listOf(200, 250, 330, 500)
+val CUP_SIZES = listOf(200, 250, 330, 400, 500)
+
+/** Reminders are never scheduled closer together than this (gentler on digestion). */
+const val MIN_INTERVAL_MINUTES = 120
 
 /** Snooze durations (minutes) the user can pick at the alarm. */
 val SNOOZE_OPTIONS = listOf(5, 10)

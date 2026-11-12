@@ -16,10 +16,13 @@ data class HydrationResult(
 
 object HydrationCalculator {
 
+    // Weight-based base factor (ml per kg). Kept intentionally moderate so that, together with the
+    // small gender/height additions, a normal adult lands near ~30 ml/kg total and rises toward
+    // ~35 ml/kg only with higher activity — avoiding the previous over-estimate (~4 L).
     fun mlPerKg(age: Int): Int = when {
-        age > 65 -> 30
-        age > 55 -> 33
-        else -> 35
+        age > 65 -> 23
+        age > 55 -> 25
+        else -> 27
     }
 
     fun awakeMinutes(wake: Int, sleep: Int): Int {
@@ -79,7 +82,8 @@ object HydrationCalculator {
         val target = items.sumOf { it.ml }
         val cups = ceil(target.toDouble() / p.cupSizeMl).toInt().coerceAtLeast(1)
         val awake = awakeMinutes(p.wakeMinutes, p.sleepMinutes)
-        val interval = (awake / cups).coerceAtLeast(15)
+        // Never remind more often than MIN_INTERVAL_MINUTES (gentler on the digestive system).
+        val interval = (awake / cups).coerceAtLeast(MIN_INTERVAL_MINUTES)
         return HydrationResult(target, cups, interval, awake, items)
     }
 
