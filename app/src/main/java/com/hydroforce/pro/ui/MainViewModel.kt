@@ -116,7 +116,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveProfile(p: UserProfile, onSaved: () -> Unit) {
         viewModelScope.launch {
             repo.saveProfile(p)
-            HydrationManager.rescheduleFrom(getApplication())
+            // Preserve the running countdown instead of resetting it on every save.
+            HydrationManager.rescheduleKeepingCountdown(getApplication())
             onSaved()
         }
     }

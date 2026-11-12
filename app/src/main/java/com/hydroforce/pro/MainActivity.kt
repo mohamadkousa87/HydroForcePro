@@ -173,7 +173,7 @@ private fun HydroNavHost(vm: MainViewModel) {
                 isOnboarding = false,
                 onSave = { p ->
                     vm.saveProfile(p) {
-                        Toast.makeText(context, tr(lang, "تم الحفظ وإعادة جدولة التنبيهات ✅", "Saved and reminders rescheduled ✅"), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, tr(lang, "تم حفظ الإعدادات ✅", "Settings saved ✅"), Toast.LENGTH_SHORT).show()
                         nav.popBackStack()
                     }
                 },

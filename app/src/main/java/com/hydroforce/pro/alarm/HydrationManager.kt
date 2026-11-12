@@ -68,6 +68,25 @@ object HydrationManager {
         return arm(context, repo, profile, base)
     }
 
+    /**
+     * After a settings save: keep the running countdown when a valid future alarm already exists
+     * inside a waking window; only recompute when there's none or it's now invalid. This prevents
+     * saving the profile (even with no real change) from resetting the countdown.
+     */
+    suspend fun rescheduleKeepingCountdown(context: Context) {
+        val repo = SettingsRepository(context)
+        if (!repo.isOnboarded()) return
+        val profile = repo.currentProfile()
+        val next = repo.currentAlarmState().nextAlarmAt
+        val now = System.currentTimeMillis()
+        if (next > now && ScheduleMath.isAwake(next, profile)) {
+            AlarmScheduler.schedule(context, next)
+            updateAllHydroWidgets(context)
+        } else {
+            rescheduleFrom(context)
+        }
+    }
+
     /** Called only after ML Kit confirmed a cup/bottle in the live camera frame. */
     suspend fun recordVerifiedDrink(context: Context, source: String, drinkType: DrinkType = DrinkType.WATER) {
         val repo = SettingsRepository(context)

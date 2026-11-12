@@ -263,7 +263,7 @@ fun ProfileScreen(
                 .height(56.dp),
             shape = RoundedCornerShape(18.dp)
         ) {
-            Text(if (isOnboarding) tr("ابدأ الالتزام بالترطيب 🚀", "Start staying hydrated 🚀") else tr("حفظ وإعادة جدولة التنبيهات ✅", "Save & reschedule reminders ✅"))
+            Text(if (isOnboarding) tr("ابدأ الالتزام بالترطيب 🚀", "Start staying hydrated 🚀") else tr("حفظ الإعدادات ✅", "Save settings ✅"))
         }
         Spacer(Modifier.height(24.dp))
     }
