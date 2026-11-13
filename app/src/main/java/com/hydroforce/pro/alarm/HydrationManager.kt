@@ -48,22 +48,18 @@ object HydrationManager {
                 t = ScheduleMath.nextWindowStart(t, profile)
                 continue
             }
-            // Dry fast: freeze the daytime — push any reminder to iftar (fast end).
+            // Dry fast: freeze fasting hours — push any reminder to the fast end.
             if (profile.fastingMode == FastingMode.DRY_FAST &&
                 ScheduleMath.isFastingDay(t, profile) && ScheduleMath.inFastWindow(t, profile)
             ) {
                 t = ScheduleMath.fastEndFor(t, profile)
                 continue
             }
-            // Intermittent fast ignores meal pauses inside the fasting window (no meals happen then).
-            val skipMeals = profile.fastingMode == FastingMode.INTERMITTENT_FAST &&
-                ScheduleMath.isFastingDay(t, profile) && ScheduleMath.inFastWindow(t, profile)
-            if (!skipMeals) {
-                val mealEnd = ScheduleMath.mealPauseEnd(t, profile)
-                if (mealEnd != null) {
-                    t = mealEnd
-                    continue
-                }
+            // Meal pauses (mealPauseEnd already drops meals that conflict with the active fast).
+            val mealEnd = ScheduleMath.mealPauseEnd(t, profile)
+            if (mealEnd != null) {
+                t = mealEnd
+                continue
             }
             val m = meetings.covering(t)
             if (m != null) {
@@ -124,7 +120,7 @@ object HydrationManager {
         // Keep the main alarm after an active workout.
         val workoutEnd = repo.currentWorkoutEnd()
         if (workoutEnd > anchor) base = maxOf(base, workoutEnd + 30 * 60_000L)
-        // Suhoor nudge: 30 min before imsak during a dry fast.
+        // Pre-fast nudge: 30 min before the fast starts during a dry fast.
         if (profile.fastingMode == FastingMode.DRY_FAST && profile.suhoorReminder &&
             ScheduleMath.isFastingDay(anchor, profile)
         ) {

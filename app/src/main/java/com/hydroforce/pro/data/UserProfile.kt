@@ -33,8 +33,7 @@ enum class FastingMode(val label: String, val labelEn: String) {
 
 enum class FastingRecurrence(val label: String, val labelEn: String) {
     TODAY_ONLY("اليوم فقط", "Today only"),
-    DAILY("يومياً", "Daily"),
-    MON_THU("الإثنين والخميس", "Mon & Thu");
+    DAILY("يومياً", "Daily");
 
     fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
 }

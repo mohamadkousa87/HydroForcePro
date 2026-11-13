@@ -148,7 +148,7 @@ private fun HydroNavHost(vm: MainViewModel) {
                             ScheduleMath.isFastingDay(nowT, profile) && ScheduleMath.inFastWindow(nowT, profile)
                         if (dryFast) {
                             vm.startWorkout(duration) {
-                                Toast.makeText(context, tr(lang, "بدأ التمرين — أُضيف +500 مل بعد الإفطار", "Workout started — +500 ml added after iftar"), Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, tr(lang, "بدأ التمرين — أُضيف +500 مل بعد انتهاء الصيام", "Workout started — +500 ml added after the fast ends"), Toast.LENGTH_LONG).show()
                             }
                         } else {
                             vm.setPendingWorkout(duration)

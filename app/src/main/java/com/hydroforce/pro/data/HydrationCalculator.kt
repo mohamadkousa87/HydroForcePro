@@ -30,7 +30,7 @@ object HydrationCalculator {
         return if (diff > 0) diff else diff + 24 * 60
     }
 
-    /** Minimum reminder spacing: 45 min during the dry-fast night (iftar→imsak) so the goal fits; else 60. */
+    /** Minimum reminder spacing: 45 min during the dry-fast eating window so the goal fits; else 60. */
     fun effectiveMinInterval(p: UserProfile, nowMillis: Long): Int =
         if (p.fastingMode == FastingMode.DRY_FAST &&
             ScheduleMath.isFastingDay(nowMillis, p) &&

@@ -1,6 +1,5 @@
 package com.hydroforce.pro.data
 
-import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -76,8 +75,30 @@ object ScheduleMath {
      * returns the absolute end of that window; otherwise null. Checks the current and previous day
      * so a window spanning midnight is still caught.
      */
+    /** True if a meal at minute-of-day [m] falls inside the fast window [fastStart, fastEnd]. */
+    private fun minuteInFastWindow(m: Int, p: UserProfile): Boolean {
+        val s = p.fastStartMinutes
+        val e = p.fastEndMinutes
+        return if (s <= e) m in s until e else m >= s || m < e
+    }
+
+    /**
+     * Meal times to actually pause around, after resolving conflicts with fasting:
+     * - Dry fast: ignore all meals (the 45-min night spacing covers the short post-fast window).
+     * - Intermittent: ignore only meals that fall inside the fasting window.
+     */
+    fun effectiveMealTimes(p: UserProfile): List<Int> {
+        val base = p.enabledMealTimes()
+        if (base.isEmpty()) return base
+        return when (p.fastingMode) {
+            FastingMode.DRY_FAST -> emptyList()
+            FastingMode.INTERMITTENT_FAST -> base.filter { !minuteInFastWindow(it, p) }
+            FastingMode.NONE -> base
+        }
+    }
+
     fun mealPauseEnd(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Long? {
-        val meals = p.enabledMealTimes()
+        val meals = effectiveMealTimes(p)
         if (meals.isEmpty()) return null
         val date = Instant.ofEpochMilli(t).atZone(zone).toLocalDate()
         for (d in listOf(date.minusDays(1), date)) {
@@ -106,17 +127,9 @@ object ScheduleMath {
         return time.hour * 60 + time.minute
     }
 
-    /** Whether a fast is active on the day of [t], per the chosen recurrence. */
-    fun isFastingDay(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean {
-        if (p.fastingMode == FastingMode.NONE) return false
-        return when (p.fastingRecurrence) {
-            FastingRecurrence.DAILY, FastingRecurrence.TODAY_ONLY -> true
-            FastingRecurrence.MON_THU -> {
-                val dow = Instant.ofEpochMilli(t).atZone(zone).dayOfWeek
-                dow == DayOfWeek.MONDAY || dow == DayOfWeek.THURSDAY
-            }
-        }
-    }
+    /** Whether a fast is active on the day of [t] (TODAY_ONLY auto-expires elsewhere). */
+    fun isFastingDay(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean =
+        p.fastingMode != FastingMode.NONE
 
     /** True when [t]'s time-of-day is inside the fast window [fastStart, fastEnd] (handles overnight). */
     fun inFastWindow(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean {
@@ -126,7 +139,7 @@ object ScheduleMath {
         return if (s <= e) m in s until e else m >= s || m < e
     }
 
-    /** Absolute epoch-ms of the fast end (iftar) for the fast window covering [t]. */
+    /** Absolute epoch-ms of the fast end for the fast window covering [t]. */
     fun fastEndFor(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Long {
         val s = p.fastStartMinutes
         val e = p.fastEndMinutes

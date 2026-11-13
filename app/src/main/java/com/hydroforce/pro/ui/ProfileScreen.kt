@@ -46,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -275,27 +276,40 @@ fun ProfileScreen(
             onVibrationChange = { vibration = it }
         )
 
-        Section(tr("🍽️ التوقف حول الوجبات", "🍽️ Pause around meals")) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(tr("إيقاف التنبيهات وقت الأكل", "Pause reminders at meal times"), fontWeight = FontWeight.SemiBold)
-                    Text(
-                        tr("يتوقف التنبيه 30 دقيقة قبل الوجبة و45 دقيقة بعدها.", "Reminders stop 30 min before and 45 min after each meal."),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = mealsEnabled, onCheckedChange = { mealsEnabled = it })
+        Section(tr("🍽️ التوقف حول الوجبات", "🍽️ Meal pauses")) {
+            val mealsLocked = fastingMode == FastingMode.DRY_FAST
+            if (mealsLocked) {
+                Text(
+                    tr(
+                        "متوقف مؤقتاً أثناء تفعيل الصيام الجاف (تُطبق راحة وجبة 45 دقيقة تلقائياً بعد انتهاء الصيام).",
+                        "Paused automatically while Dry Fast is active (a 45-min meal break is applied after Fast end)."
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = HydroWarn
+                )
             }
-            if (mealsEnabled) {
-                HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                MealRow(tr("🍳 الفطور", "🍳 Breakfast"), breakfastOn, breakfast, { breakfastOn = it }) { breakfast = it }
-                MealRow(tr("🍚 الغداء", "🍚 Lunch"), lunchOn, lunch, { lunchOn = it }) { lunch = it }
-                MealRow(tr("🍲 العشاء", "🍲 Dinner"), dinnerOn, dinner, { dinnerOn = it }) { dinner = it }
+            Column(Modifier.alpha(if (mealsLocked) 0.5f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(tr("إيقاف التنبيهات وقت الأكل", "Pause reminders at meal times"), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            tr("يتوقف التنبيه 30 دقيقة قبل الوجبة و45 دقيقة بعدها.", "Reminders stop 30 min before and 45 min after each meal."),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = mealsEnabled, enabled = !mealsLocked, onCheckedChange = { mealsEnabled = it })
+                }
+                if (mealsEnabled) {
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    MealRow(tr("🍳 الفطور", "🍳 Breakfast"), breakfastOn, breakfast, mealsLocked, { breakfastOn = it }) { breakfast = it }
+                    MealRow(tr("🍚 الغداء", "🍚 Lunch"), lunchOn, lunch, mealsLocked, { lunchOn = it }) { lunch = it }
+                    MealRow(tr("🍲 العشاء", "🍲 Dinner"), dinnerOn, dinner, mealsLocked, { dinnerOn = it }) { dinner = it }
+                }
             }
         }
 
-        Section(tr("🌙 محرك الصيام", "🌙 Fasting engine")) {
+        Section(tr("⏳ نظام الصيام", "⏳ Fasting mode")) {
             Text(tr("النمط", "Mode"), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FastingMode.entries.forEach {
@@ -309,21 +323,21 @@ fun ProfileScreen(
                         FilterChip(selected = fastingRecurrence == it, onClick = { fastingRecurrence = it }, label = { Text(it.label(lang)) })
                     }
                 }
-                TimeRow(tr("🌅 بداية الصيام (الإمساك)", "🌅 Fast start (imsak)"), fastStart) { fastStart = it }
-                TimeRow(tr("🌇 نهاية الصيام (الإفطار)", "🌇 Fast end (iftar)"), fastEnd) { fastEnd = it }
+                TimeRow(tr("🌅 بدء الصيام", "🌅 Fast start"), fastStart) { fastStart = it }
+                TimeRow(tr("🌇 انتهاء الصيام", "🌇 Fast end"), fastEnd) { fastEnd = it }
                 if (fastingMode == FastingMode.DRY_FAST) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(tr("تنبيه السحور", "Suhoor reminder"), fontWeight = FontWeight.SemiBold)
+                            Text(tr("تنبيه ما قبل الصيام", "Pre-fast reminder"), fontWeight = FontWeight.SemiBold)
                             Text(
-                                tr("تذكير بالشرب قبل الإمساك بـ 30 دقيقة", "A drink nudge 30 min before imsak"),
+                                tr("تذكير أخير بالشرب قبل بدء الصيام بـ 30 دقيقة", "Final drink nudge 30 min before fast starts"),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Switch(checked = suhoorReminder, onCheckedChange = { suhoorReminder = it })
                     }
                     Text(
-                        tr("أثناء النهار تتجمّد التنبيهات وتُدفع للإفطار، ثم توزيع ليلي هادئ.", "Daytime reminders freeze to iftar, then a calm night distribution."),
+                        tr("تتوقف التنبيهات خلال ساعات الصيام، ثم تُوزع بانتظام بعد انتهاء الصيام.", "Reminders pause during fasting hours, then distribute evenly after fast ends."),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
@@ -382,20 +396,21 @@ private fun MealRow(
     label: String,
     enabled: Boolean,
     minutes: Int,
+    locked: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onPick: (Int) -> Unit
 ) {
     val context = LocalContext.current
     val lang = LocalLanguage.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Switch(checked = enabled, onCheckedChange = onEnabledChange)
+        Switch(checked = enabled, enabled = !locked, onCheckedChange = onEnabledChange)
         Spacer(Modifier.width(8.dp))
         Text(label, Modifier.weight(1f), color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
         androidx.compose.material3.OutlinedButton(
             onClick = {
                 TimePickerDialog(context, { _, h, m -> onPick(h * 60 + m) }, minutes / 60, minutes % 60, false).show()
             },
-            enabled = enabled,
+            enabled = enabled && !locked,
             border = BorderStroke(1.dp, HydroBlue),
             shape = RoundedCornerShape(12.dp)
         ) { Text(formatClock(minutes, lang)) }
