@@ -145,7 +145,7 @@ fun ProfileScreen(
                 TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
             }
             Text(
-                if (isOnboarding) tr("مرحباً بك في هايدرو فورس 💧", "Welcome to HydroForce 💧") else tr("الملف الطبي والجدول", "Medical profile & schedule"),
+                if (isOnboarding) tr("مرحباً بك في VeroSip 💧", "Welcome to VeroSip 💧") else tr("الملف الطبي والجدول", "Medical profile & schedule"),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )

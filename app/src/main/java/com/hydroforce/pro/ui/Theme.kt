@@ -21,56 +21,58 @@ import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.ThemeMode
 
-val HydroBlue = Color(0xFF0B6FC2)
-val HydroDeep = Color(0xFF0B4F8A)
-val HydroSky = Color(0xFF7FD3FF)
-val HydroMint = Color(0xFF14B88A)
+// ===== VeroSip — Bio-Tech Aqua palette =====
+// Brand accent constants (used directly across the UI for headers/buttons/accents).
+val HydroBlue = Color(0xFF0097B2)   // deep electric cyan (accent / buttons, readable on white & dark)
+val HydroDeep = Color(0xFF0A1118)   // Deep Carbon Navy (dark surfaces / header base)
+val HydroSky = Color(0xFF00E5FF)    // Electric Bio-Cyan (bright accents on dark)
+val HydroMint = Color(0xFF00E676)   // Verified Bio-Green (success / verification)
 val HydroWarn = Color(0xFFE8833A)
 val HydroDanger = Color(0xFFD64545)
-val HydroBg = Color(0xFFF4F9FF)
+val HydroBg = Color(0xFFF4F9FB)
 
-// Dark palette
-val HydroDarkBg = Color(0xFF071221)
-val HydroDarkSurface = Color(0xFF0E1E30)
+// Dark palette base
+val HydroDarkBg = Color(0xFF0A1118)       // Deep Carbon Navy
+val HydroDarkSurface = Color(0xFF131E29)
 
 private val lightColors = lightColorScheme(
-    primary = HydroBlue,
+    primary = Color(0xFF007C91),              // VeroSip light primary
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD6ECFF),
-    onPrimaryContainer = HydroDeep,
-    secondary = HydroMint,
+    primaryContainer = Color(0xFFBCEAF2),
+    onPrimaryContainer = Color(0xFF00363F),
+    secondary = Color(0xFF00A152),           // VeroSip light success/secondary
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD3F5EA),
-    onSecondaryContainer = Color(0xFF064E3B),
+    secondaryContainer = Color(0xFFC6F3D8),
+    onSecondaryContainer = Color(0xFF00391C),
     tertiary = HydroWarn,
     error = HydroDanger,
-    background = HydroBg,
+    background = HydroBg,                     // #F4F9FB
     onBackground = Color(0xFF0F2236),
     surface = Color.White,
     onSurface = Color(0xFF0F2236),
-    surfaceVariant = Color(0xFFE6F0FA),
-    onSurfaceVariant = Color(0xFF475A6E),
-    outline = Color(0xFFB6C8DA)
+    surfaceVariant = Color(0xFFE2EEF2),
+    onSurfaceVariant = Color(0xFF45606A),
+    outline = Color(0xFFAEC6CE)
 )
 
 private val darkColors = darkColorScheme(
-    primary = HydroSky,
-    onPrimary = Color(0xFF042033),
-    primaryContainer = Color(0xFF13344F),
-    onPrimaryContainer = Color(0xFFCDE8FF),
-    secondary = HydroMint,
-    onSecondary = Color(0xFF00382A),
-    secondaryContainer = Color(0xFF0E3B2E),
-    onSecondaryContainer = Color(0xFFBFF3E2),
-    tertiary = HydroWarn,
+    primary = Color(0xFF00E5FF),             // Electric Bio-Cyan
+    onPrimary = Color(0xFF00363F),
+    primaryContainer = Color(0xFF0E3A45),
+    onPrimaryContainer = Color(0xFFB8F5FF),
+    secondary = Color(0xFF00E676),           // Verified Bio-Green
+    onSecondary = Color(0xFF00391C),
+    secondaryContainer = Color(0xFF0E3B2A),
+    onSecondaryContainer = Color(0xFFBFF8D6),
+    tertiary = Color(0xFF00E676),
     error = Color(0xFFFF8A80),
-    background = HydroDarkBg,
+    background = HydroDarkBg,                 // #0A1118
     onBackground = Color(0xFFE6EEF6),
-    surface = HydroDarkSurface,
+    surface = HydroDarkBg,                    // #0A1118 (spec: background/surface same)
     onSurface = Color(0xFFE6EEF6),
-    surfaceVariant = Color(0xFF17293C),
+    surfaceVariant = HydroDarkSurface,       // #131E29
     onSurfaceVariant = Color(0xFFAFC2D4),
-    outline = Color(0xFF3A4D60)
+    outline = Color(0xFF32424F)
 )
 
 private val typography = Typography(

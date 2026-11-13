@@ -66,7 +66,7 @@ data class AlarmState(
 val CUP_SIZES = listOf(200, 250, 330, 400, 500)
 
 /** Reminders are never scheduled closer together than this (gentler on digestion). */
-const val MIN_INTERVAL_MINUTES = 120
+const val MIN_INTERVAL_MINUTES = 60
 
 /** Meal pause window: stop reminders this many minutes before and after each enabled meal. */
 const val MEAL_PAUSE_BEFORE_MINUTES = 30

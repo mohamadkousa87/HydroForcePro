@@ -58,9 +58,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), System.currentTimeMillis())
 
-    /** Daily progress resets at local midnight (start of the calendar day). */
-    private val dayStart = now.map { ScheduleMath.calendarDayStart(it) }
-        .distinctUntilChanged()
+    /** Daily progress resets at the user's wake-up time (hydration cycle), not midnight. */
+    private val dayStart = combine(now, profile) { t, p ->
+        ScheduleMath.currentHydrationCycleStart(t, p.wakeMinutes)
+    }.distinctUntilChanged()
 
     val todayLogs: StateFlow<List<IntakeLog>> = dayStart
         .flatMapLatest { dao.logsSince(it) }
@@ -129,10 +130,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _pendingDrinkType.value = type
     }
 
-    /** Proactive "I drank now": only reachable after ML Kit verification. Resets the countdown from now. */
-    fun onManualDrinkVerified(onDone: () -> Unit) {
+    /** Proactive "I drank now": only reachable after ML Kit verification. [amountMl] is the chosen volume. */
+    fun onManualDrinkVerified(amountMl: Int, onDone: () -> Unit) {
         viewModelScope.launch {
-            HydrationManager.recordVerifiedDrink(getApplication(), HydrationManager.SOURCE_MANUAL, _pendingDrinkType.value)
+            HydrationManager.recordVerifiedDrink(getApplication(), amountMl, HydrationManager.SOURCE_MANUAL, _pendingDrinkType.value)
             AlarmService.stop(getApplication())
             _pendingDrinkType.value = DrinkType.WATER
             onDone()

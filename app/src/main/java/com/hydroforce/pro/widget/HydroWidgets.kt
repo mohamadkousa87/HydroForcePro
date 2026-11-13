@@ -57,7 +57,7 @@ private suspend fun loadWidgetData(context: Context): WidgetData {
     val profile = repo.currentProfile()
     val result = HydrationCalculator.calculate(profile)
     val consumed = AppDatabase.get(context).intakeDao()
-        .totalSince(ScheduleMath.calendarDayStart(System.currentTimeMillis()))
+        .totalSince(ScheduleMath.currentHydrationCycleStart(System.currentTimeMillis(), profile.wakeMinutes))
     val alarm = repo.currentAlarmState()
     val percent = if (result.targetMl > 0) (consumed * 100 / result.targetMl).coerceIn(0, 100) else 0
     return WidgetData(consumed, result.targetMl, percent, alarm.nextAlarmAt, true, lang)

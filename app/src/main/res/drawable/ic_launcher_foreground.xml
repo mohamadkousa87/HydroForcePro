@@ -1,13 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- VeroSip "Viewfinder Drop" — cyan corner brackets + stroked water drop + green check. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Viewfinder corner brackets (cyan) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,26 C54,26 34,50 34,63 C34,74 43,82 54,82 C65,82 74,74 74,63 C74,50 54,26 54,26 Z" />
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M28,42 L28,28 L42,28" />
     <path
-        android:fillColor="#7FD3FF"
-        android:pathData="M42,64 C42,71 47,76 54,76 L54,72 C49,72 46,68 46,64 Z" />
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M66,28 L80,28 L80,42" />
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M28,66 L28,80 L42,80" />
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M66,80 L80,80 L80,66" />
+
+    <!-- Water drop (cyan outline) -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,38 C54,38 42,52 42,61 C42,68 47.4,73 54,73 C60.6,73 66,68 66,61 C66,52 54,38 54,38 Z" />
+
+    <!-- Verified check (green) merging into the drop's lower-right -->
+    <path
+        android:strokeColor="#00E676"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M57,62 L61.5,66.5 L70,56" />
 </vector>

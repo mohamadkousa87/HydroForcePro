@@ -181,7 +181,7 @@ private fun Header(onSettings: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(tr("هايدرو فورس برو 💧", "HydroForce Pro 💧"), color = Color.White, style = MaterialTheme.typography.titleLarge)
+                Text("VeroSip 💧", color = Color.White, style = MaterialTheme.typography.titleLarge)
                 Text(tr("ترطيب طبي ملزم بالتوثيق", "Verified medical hydration"), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
             }
             TextButton(onClick = onSettings) {

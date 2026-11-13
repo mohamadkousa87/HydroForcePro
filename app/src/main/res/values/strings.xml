@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">هايدرو فورس برو</string>
+    <string name="app_name">VeroSip</string>
     <string name="widget_progress_desc">تقدم شرب الماء اليوم</string>
     <string name="widget_next_desc">موعد التنبيه القادم</string>
     <string name="widget_button_desc">فتح سريع لتطبيق الترطيب</string>

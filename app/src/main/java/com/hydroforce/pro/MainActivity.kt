@@ -192,14 +192,15 @@ private fun HydroNavHost(vm: MainViewModel) {
                 TextButton(onClick = { nav.popBackStack() }) { Text(tr("→ إلغاء", "→ Cancel"), color = Color.White) }
                 CameraVerificationScreen(
                     title = tr(
-                        "شربت ماء الآن؟ وثّق ذلك 📷 (+${formatMl(profile.cupSizeMl)} مل)",
-                        "Drinking now? Verify it 📷 (+${formatMl(profile.cupSizeMl)} ml)"
+                        "شربت ماء الآن؟ وثّق ذلك 📷",
+                        "Drinking now? Verify it 📷"
                     ),
-                    onVerified = {
-                        vm.onManualDrinkVerified {
+                    defaultAmountMl = profile.cupSizeMl,
+                    onVerified = { amountMl ->
+                        vm.onManualDrinkVerified(amountMl) {
                             Toast.makeText(
                                 context,
-                                tr(lang, "تمت إضافة ${profile.cupSizeMl} مل وإعادة ضبط المؤقت من الآن ⏱️", "Added ${profile.cupSizeMl} ml and reset the timer ⏱️"),
+                                tr(lang, "تمت إضافة $amountMl مل وتحديث المؤقت ⏱️", "Added $amountMl ml and updated the timer ⏱️"),
                                 Toast.LENGTH_LONG
                             ).show()
                             nav.popBackStack()

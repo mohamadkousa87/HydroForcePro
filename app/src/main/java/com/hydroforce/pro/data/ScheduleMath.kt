@@ -39,9 +39,26 @@ object ScheduleMath {
     fun dayStart(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Long =
         windowsAround(t, p, zone).last { it.start <= t }.start
 
-    /** Start of the current calendar day (local midnight). Daily progress resets here. */
+    /** Start of the current calendar day (local midnight). */
     fun calendarDayStart(t: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
         Instant.ofEpochMilli(t).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+
+    /**
+     * Start of the CURRENT hydration cycle, anchored on the user's wake-up time (not midnight),
+     * so people who stay up past 00:00 don't get their daily progress reset at midnight.
+     * - If now is at/after today's wake time → today's wake time.
+     * - If now is before today's wake time (e.g. 01:00 while wake is 09:00) → yesterday's wake time.
+     */
+    fun currentHydrationCycleStart(nowMillis: Long, wakeMinutes: Int, zone: ZoneId = ZoneId.systemDefault()): Long {
+        val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+        val wakeTime = LocalTime.of(wakeMinutes / 60, wakeMinutes % 60)
+        val wakeToday = today.atTime(wakeTime).atZone(zone).toInstant().toEpochMilli()
+        return if (nowMillis >= wakeToday) {
+            wakeToday
+        } else {
+            today.minusDays(1).atTime(wakeTime).atZone(zone).toInstant().toEpochMilli()
+        }
+    }
 
     fun isAwake(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean =
         windowContaining(t, p, zone) != null

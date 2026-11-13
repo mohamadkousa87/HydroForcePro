@@ -40,7 +40,7 @@ object CsvExporter {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "سجل هايدرو فورس برو")
+            putExtra(Intent.EXTRA_SUBJECT, "VeroSip — سجل الترطيب")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

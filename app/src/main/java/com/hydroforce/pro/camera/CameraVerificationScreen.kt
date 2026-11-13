@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -18,35 +19,45 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -59,18 +70,24 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.hydroforce.pro.ui.HydroDanger
-import com.hydroforce.pro.ui.HydroMint
 import com.hydroforce.pro.ui.LocalLanguage
 import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /** Labels (lower-case) that count as proof of a cup / glass / bottle of water. */
 val ACCEPTED_LABELS = setOf(
     "water", "bottle", "water bottle", "plastic bottle", "glass", "cup", "drink", "liquid",
-    "beverage", "tableware", "drinkware", "mug", "pitcher", "tumbler"
+    "beverage", "drinkware", "mug", "pitcher", "tumbler"
 )
 const val CONFIDENCE_THRESHOLD = 0.65f
-const val REJECT_MESSAGE = "لم يتم رصد كأس أو عبوة ماء! يرجى توجيه الكاميرا بوضوح"
+
+/** VeroSip brand colors used in the viewfinder overlay. */
+private val VeroCyan = Color(0xFF00E5FF)
+private val VeroGreen = Color(0xFF00E676)
+
+/** Quick volume options (ml) shown above the capture button. */
+private val VOLUME_OPTIONS = listOf(100, 200, 300, 400, 500)
 
 private sealed interface VerifyState {
     data object Ready : VerifyState
@@ -82,14 +99,15 @@ private sealed interface VerifyState {
 
 /**
  * Live CameraX preview + capture, verified on-device with ML Kit image labeling.
- * Frames are processed in memory only and released immediately: nothing is written to storage
- * and there is deliberately no gallery or file picker path.
+ * Frames are processed in memory only and released immediately: nothing is written to storage.
+ * [defaultAmountMl] pre-selects the quick-volume chip; [onVerified] returns the chosen volume.
  */
 @Composable
 fun CameraVerificationScreen(
     modifier: Modifier = Modifier,
     title: String = "وثّق شرب الماء بالكاميرا",
-    onVerified: () -> Unit
+    defaultAmountMl: Int = 400,
+    onVerified: (Int) -> Unit
 ) {
     val context = LocalContext.current
     var hasPermission by remember {
@@ -124,7 +142,7 @@ fun CameraVerificationScreen(
         )
         Spacer(Modifier.height(12.dp))
         if (hasPermission) {
-            CameraContent(onVerified = onVerified)
+            CameraContent(defaultAmountMl = defaultAmountMl, onVerified = onVerified)
         } else {
             Column(
                 Modifier
@@ -151,11 +169,16 @@ fun CameraVerificationScreen(
 }
 
 @Composable
-private fun CameraContent(onVerified: () -> Unit) {
+private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val lang = LocalLanguage.current
     var state by remember { mutableStateOf<VerifyState>(VerifyState.Ready) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var torchOn by remember { mutableStateOf(false) }
+    var selectedAmount by remember {
+        mutableIntStateOf(VOLUME_OPTIONS.minByOrNull { abs(it - defaultAmountMl) } ?: 400)
+    }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -183,7 +206,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
                 provider.unbindAll()
-                provider.bindToLifecycle(
+                camera = provider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
@@ -206,7 +229,7 @@ private fun CameraContent(onVerified: () -> Unit) {
         if (verified != null) {
             playSuccessTone()
             delay(1400)
-            onVerified()
+            onVerified(selectedAmount)
         }
     }
 
@@ -242,7 +265,6 @@ private fun CameraContent(onVerified: () -> Unit) {
                             state = VerifyState.Error(tr(lang, "فشل التحليل: ${it.message ?: ""}", "Analysis failed: ${it.message ?: ""}"))
                         }
                         .addOnCompleteListener {
-                            // Discard the in-memory frame; nothing is ever persisted.
                             bitmap.recycle()
                         }
                 }
@@ -254,6 +276,8 @@ private fun CameraContent(onVerified: () -> Unit) {
         )
     }
 
+    val frameColor = if (verified != null) VeroGreen else VeroCyan
+
     Box(
         Modifier
             .fillMaxWidth()
@@ -262,7 +286,7 @@ private fun CameraContent(onVerified: () -> Unit) {
             .border(
                 3.dp,
                 when (state) {
-                    is VerifyState.Verified -> HydroMint
+                    is VerifyState.Verified -> VeroGreen
                     is VerifyState.Rejected, is VerifyState.Error -> HydroDanger
                     else -> Color.White.copy(alpha = 0.5f)
                 },
@@ -271,6 +295,43 @@ private fun CameraContent(onVerified: () -> Unit) {
             .background(Color.Black)
     ) {
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+
+        // VeroSip viewfinder corner brackets, centered.
+        Canvas(Modifier.fillMaxSize()) {
+            val side = minOf(size.width, size.height) * 0.55f
+            val left = (size.width - side) / 2f
+            val top = (size.height - side) / 2f
+            val right = left + side
+            val bottom = top + side
+            val arm = side * 0.18f
+            val sw = 4.dp.toPx()
+            fun l(a: Offset, b: Offset) = drawLine(frameColor, a, b, strokeWidth = sw, cap = StrokeCap.Round)
+            // top-left
+            l(Offset(left, top), Offset(left + arm, top)); l(Offset(left, top), Offset(left, top + arm))
+            // top-right
+            l(Offset(right, top), Offset(right - arm, top)); l(Offset(right, top), Offset(right, top + arm))
+            // bottom-left
+            l(Offset(left, bottom), Offset(left + arm, bottom)); l(Offset(left, bottom), Offset(left, bottom - arm))
+            // bottom-right
+            l(Offset(right, bottom), Offset(right - arm, bottom)); l(Offset(right, bottom), Offset(right, bottom - arm))
+        }
+
+        // Torch toggle (top-end).
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable {
+                    torchOn = !torchOn
+                    camera?.cameraControl?.enableTorch(torchOn)
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (torchOn) "🔦" else "💡", fontSize = 20.sp)
+        }
 
         if (state is VerifyState.Analyzing) {
             Box(
@@ -303,7 +364,7 @@ private fun CameraContent(onVerified: () -> Unit) {
                     Modifier
                         .size(88.dp)
                         .clip(CircleShape)
-                        .background(HydroMint),
+                        .background(VeroGreen),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("✓", color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
@@ -328,6 +389,36 @@ private fun CameraContent(onVerified: () -> Unit) {
 
     Spacer(Modifier.height(12.dp))
 
+    // Quick volume selection.
+    Text(
+        tr("كم ستشرب؟ (مل)", "How much? (ml)"),
+        color = Color.White,
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        VOLUME_OPTIONS.forEach { ml ->
+            FilterChip(
+                selected = selectedAmount == ml,
+                onClick = { selectedAmount = ml },
+                enabled = verified == null,
+                label = { Text("$ml") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = VeroCyan,
+                    selectedLabelColor = Color.Black,
+                    labelColor = Color.White
+                )
+            )
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
     Button(
         onClick = { capture() },
         enabled = state !is VerifyState.Analyzing && verified == null,
@@ -335,12 +426,12 @@ private fun CameraContent(onVerified: () -> Unit) {
             .fillMaxWidth()
             .height(60.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0B4F8A))
+        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0A1118))
     ) {
         Text(
             when (state) {
                 is VerifyState.Rejected, is VerifyState.Error -> tr("📸 إعادة الالتقاط", "📸 Retake")
-                else -> tr("📸 التقاط والتحقق", "📸 Capture & verify")
+                else -> tr("📸 التقاط والتحقق ($selectedAmount مل)", "📸 Capture & verify ($selectedAmount ml)")
             },
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold

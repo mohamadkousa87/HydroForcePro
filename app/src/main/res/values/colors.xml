@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#F4F9FF</color>
-    <color name="ic_bg">#0B6FC2</color>
+    <color name="bg">#F4F9FB</color>
+    <!-- VeroSip launcher icon background: Deep Carbon Navy -->
+    <color name="ic_bg">#0A1118</color>
+    <color name="ic_launcher_background">#0A1118</color>
 </resources>

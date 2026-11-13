@@ -48,6 +48,7 @@ import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.MAX_SNOOZES
 import com.hydroforce.pro.data.SNOOZE_OPTIONS
 import com.hydroforce.pro.data.SettingsRepository
+import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.ui.DrinkTypePicker
 import com.hydroforce.pro.ui.HydroDeep
 import com.hydroforce.pro.ui.HydroTheme
@@ -105,6 +106,7 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repo = androidx.compose.runtime.remember { SettingsRepository(context) }
     val alarmState by repo.alarmState.collectAsState(initial = AlarmState())
+    val profile by repo.profile.collectAsState(initial = UserProfile())
     val ringing by AlarmService.ringing.collectAsState()
     val muted by AlarmService.muted.collectAsState()
     val discreetLive by AlarmService.discreet.collectAsState()
@@ -160,9 +162,10 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
 
         CameraVerificationScreen(
             title = tr("أثبت أنك تشرب الآن", "Prove you're drinking now"),
-            onVerified = {
+            defaultAmountMl = profile.cupSizeMl,
+            onVerified = { amountMl ->
                 scope.launch {
-                    HydrationManager.recordVerifiedDrink(context, HydrationManager.SOURCE_ALARM, drinkType)
+                    HydrationManager.recordVerifiedDrink(context, amountMl, HydrationManager.SOURCE_ALARM, drinkType)
                     AlarmService.stop(context)
                     onDone()
                 }

@@ -15,6 +15,7 @@ import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.UserProfile
 import com.hydroforce.pro.data.covering
 import com.hydroforce.pro.widget.updateAllHydroWidgets
+import kotlin.math.roundToInt
 
 /** Single place that mutates intake + alarm state, shared by activities, the service and receivers. */
 object HydrationManager {
@@ -68,7 +69,7 @@ object HydrationManager {
         val profile = repo.currentProfile()
         val result = HydrationCalculator.calculate(profile)
         val consumed = AppDatabase.get(context).intakeDao()
-            .totalSince(ScheduleMath.calendarDayStart(anchor))
+            .totalSince(ScheduleMath.currentHydrationCycleStart(anchor, profile.wakeMinutes))
         val base = if (consumed >= result.targetMl) {
             ScheduleMath.nextWindowStart(anchor, profile)
         } else {
@@ -96,12 +97,21 @@ object HydrationManager {
         }
     }
 
-    /** Called only after ML Kit confirmed a cup/bottle in the live camera frame. */
-    suspend fun recordVerifiedDrink(context: Context, source: String, drinkType: DrinkType = DrinkType.WATER) {
+    /**
+     * Called only after ML Kit confirmed a cup/bottle. [amountMl] is the actual volume the user
+     * picked in the camera screen. Uses the "water time credit" model: drinking more buys more time,
+     * and a proactive partial drink extends (never shortens) the next reminder.
+     */
+    suspend fun recordVerifiedDrink(
+        context: Context,
+        amountMl: Int,
+        source: String,
+        drinkType: DrinkType = DrinkType.WATER
+    ) {
         val repo = SettingsRepository(context)
         val profile = repo.currentProfile()
         val now = System.currentTimeMillis()
-        val amount = profile.cupSizeMl
+        val amount = amountMl.coerceAtLeast(1)
         AppDatabase.get(context).intakeDao().insert(
             IntakeLog(
                 timestamp = now,
@@ -113,7 +123,33 @@ object HydrationManager {
         )
         repo.setLastDrink(now)
         repo.setSnoozeUsed(0)
-        rescheduleFrom(context, now)
+
+        val result = HydrationCalculator.calculate(profile)
+        val consumed = AppDatabase.get(context).intakeDao()
+            .totalSince(ScheduleMath.currentHydrationCycleStart(now, profile.wakeMinutes))
+        // Goal met → wait for the next waking window instead of another reminder today.
+        if (consumed >= result.targetMl) {
+            arm(context, repo, profile, ScheduleMath.nextWindowStart(now, profile))
+            return
+        }
+
+        val baseIntervalMinutes = result.intervalMinutes
+        val earnedMinutes = (baseIntervalMinutes * (amount.toDouble() / profile.cupSizeMl))
+            .roundToInt()
+            .coerceAtLeast(30)
+        val ringing = AlarmService.ringing.value
+        val nextTrigger = repo.currentAlarmState().nextAlarmAt
+
+        val base = if (ringing || nextTrigger <= now) {
+            // Responding to a live/overdue alarm: next reminder is earned time from now.
+            now + earnedMinutes * 60_000L
+        } else {
+            // Proactive drink before the next alarm is due: extend it, capped at one full interval from now.
+            val candidate = maxOf(nextTrigger + earnedMinutes * 60_000L, now + earnedMinutes * 60_000L)
+            val maxAllowed = now + baseIntervalMinutes * 60_000L
+            minOf(candidate, maxAllowed)
+        }
+        arm(context, repo, profile, base)
     }
 
     /**
