@@ -80,14 +80,23 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
-/** Labels (lower-case) that count as proof of a cup / glass / bottle of a drink. */
-val ACCEPTED_LABELS = setOf(
+/** Drink/container labels that count as proof (lower-case). No generic tableware/bowl/ceramic. */
+val ACCEPTED_DRINK_LABELS = setOf(
     "water", "bottle", "water bottle", "plastic bottle", "glass", "cup", "drink", "liquid",
     "beverage", "drinkware", "mug", "pitcher", "tumbler", "teapot", "tea", "coffee",
-    "coffeecup", "tableware", "glassware", "ceramic", "bowl"
+    "coffeecup", "glassware", "jug", "flask"
 )
-// Lenient threshold: transparent/ceramic cups score low, so accept from 0.40.
-const val CONFIDENCE_THRESHOLD = 0.40f
+
+/** Hard blacklist: if any of these is seen with enough confidence, reject even if a drink is present. */
+val EXCLUDED_FOOD_LABELS = setOf(
+    "food", "fruit", "vegetable", "carrot", "meal", "dish", "plate", "salad", "snack",
+    "bread", "meat", "pasta", "rice", "produce", "cuisine", "baked goods", "fast food", "dessert"
+)
+
+/** Minimum confidence to accept a drink label. */
+const val CONFIDENCE_THRESHOLD = 0.42f
+/** Minimum confidence for a food label to trigger the hard rejection. */
+const val FOOD_THRESHOLD = 0.38f
 
 /** VeroSip brand colors used in the viewfinder overlay. */
 private val VeroCyan = Color(0xFF00E5FF)
@@ -97,15 +106,34 @@ private val VeroOrange = Color(0xFFFF8F3A)
 /** Quick volume options (ml) shown above the capture button. */
 private val VOLUME_OPTIONS = listOf(100, 200, 300, 400, 500)
 
+/** Outcome of the three-tier filter applied to a set of ML Kit labels. */
+private sealed interface Outcome {
+    data object Food : Outcome
+    data class Drink(val label: String) : Outcome
+    data class None(val seen: List<String>) : Outcome
+}
+
+/** Three-tier rule: food blacklist first (hard reject), then an accepted drink label. */
+private fun evaluate(labels: List<Pair<String, Float>>): Outcome {
+    val food = labels.any { it.first.lowercase() in EXCLUDED_FOOD_LABELS && it.second >= FOOD_THRESHOLD }
+    if (food) return Outcome.Food
+    val drink = labels.firstOrNull { it.first.lowercase() in ACCEPTED_DRINK_LABELS && it.second >= CONFIDENCE_THRESHOLD }
+    return if (drink != null) Outcome.Drink(drink.first)
+    else Outcome.None(labels.sortedByDescending { it.second }.take(4).map { it.first })
+}
+
+/** Live lock-on: passes only when there is no food and a drink label clears the threshold. */
+private fun passesFilter(labels: List<Pair<String, Float>>): Boolean = evaluate(labels) is Outcome.Drink
+
 private sealed interface VerifyState {
     data object Ready : VerifyState
     data object Analyzing : VerifyState
-    data class Rejected(val seen: List<String>) : VerifyState
+    data class Rejected(val seen: List<String>, val isFood: Boolean) : VerifyState
     data class Verified(val matched: String) : VerifyState
     data class Error(val message: String) : VerifyState
 }
 
-/** Runs the live preview labeler (throttled) and reports the top labels back for on-screen feedback. */
+/** Runs the live preview labeler (throttled ~500ms) and reports all labels for filter + feedback. */
 @OptIn(ExperimentalGetImage::class)
 private fun analyzeLiveFrame(
     proxy: ImageProxy,
@@ -115,14 +143,14 @@ private fun analyzeLiveFrame(
 ) {
     val mediaImage = proxy.image
     val now = System.currentTimeMillis()
-    if (mediaImage == null || now - lastTs.get() < 600) {
+    if (mediaImage == null || now - lastTs.get() < 500) {
         proxy.close()
         return
     }
     lastTs.set(now)
     labeler.process(InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees))
         .addOnSuccessListener { labels ->
-            onLabels(labels.sortedByDescending { it.confidence }.take(3).map { it.text to it.confidence })
+            onLabels(labels.map { it.text to it.confidence })
         }
         .addOnCompleteListener { proxy.close() }
 }
@@ -202,6 +230,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
     var torchOn by remember { mutableStateOf(false) }
     var captureAttempts by remember { mutableStateOf(0) }
     var liveLabels by remember { mutableStateOf<List<Pair<String, Float>>>(emptyList()) }
+    var lockedOn by remember { mutableStateOf(false) }
     var selectedAmount by remember {
         mutableIntStateOf(VOLUME_OPTIONS.minByOrNull { abs(it - defaultAmountMl) } ?: 400)
     }
@@ -215,12 +244,12 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
     val imageCapture = remember {
         ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
     }
-    // Capture labeler (decision) + live labeler (low threshold, for on-screen feedback).
+    // Low base threshold on both labelers; the 0.42/0.38 rules are applied in evaluate().
     val labeler = remember {
-        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(CONFIDENCE_THRESHOLD).build())
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.15f).build())
     }
     val liveLabeler = remember {
-        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.20f).build())
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.15f).build())
     }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val lastAnalysisTs = remember { AtomicLong(0L) }
@@ -237,7 +266,10 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
                 imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
-                    analyzeLiveFrame(proxy, liveLabeler, lastAnalysisTs) { labels -> liveLabels = labels }
+                    analyzeLiveFrame(proxy, liveLabeler, lastAnalysisTs) { labels ->
+                        liveLabels = labels.sortedByDescending { it.second }.take(3)
+                        lockedOn = passesFilter(labels)
+                    }
                 }
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(
@@ -293,13 +325,16 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                     }
                     labeler.process(InputImage.fromBitmap(bitmap, rotation))
                         .addOnSuccessListener { labels ->
-                            val strong = labels.filter { it.confidence >= CONFIDENCE_THRESHOLD }
-                            val match = strong.firstOrNull { it.text.lowercase() in ACCEPTED_LABELS }
-                            if (match != null) {
-                                state = VerifyState.Verified(match.text)
-                            } else {
-                                captureAttempts++
-                                state = VerifyState.Rejected(strong.take(4).map { it.text })
+                            when (val outcome = evaluate(labels.map { it.text to it.confidence })) {
+                                is Outcome.Drink -> state = VerifyState.Verified(outcome.label)
+                                is Outcome.Food -> {
+                                    captureAttempts++
+                                    state = VerifyState.Rejected(emptyList(), isFood = true)
+                                }
+                                is Outcome.None -> {
+                                    captureAttempts++
+                                    state = VerifyState.Rejected(outcome.seen, isFood = false)
+                                }
                             }
                         }
                         .addOnFailureListener {
@@ -317,7 +352,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
         )
     }
 
-    val frameColor = if (verified != null) VeroGreen else VeroCyan
+    val frameColor = if (verified != null || lockedOn) VeroGreen else VeroCyan
 
     Box(
         Modifier
@@ -326,9 +361,9 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
             .clip(RoundedCornerShape(28.dp))
             .border(
                 3.dp,
-                when (state) {
-                    is VerifyState.Verified -> VeroGreen
-                    is VerifyState.Rejected, is VerifyState.Error -> HydroDanger
+                when {
+                    state is VerifyState.Verified || lockedOn -> VeroGreen
+                    state is VerifyState.Rejected || state is VerifyState.Error -> HydroDanger
                     else -> Color.White.copy(alpha = 0.5f)
                 },
                 RoundedCornerShape(28.dp)
@@ -337,7 +372,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
     ) {
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 
-        // VeroSip viewfinder corner brackets, centered.
+        // VeroSip viewfinder corner brackets, centered (green when locked on / verified).
         Canvas(Modifier.fillMaxSize()) {
             val side = minOf(size.width, size.height) * 0.55f
             val left = (size.width - side) / 2f
@@ -370,21 +405,37 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
             Text(if (torchOn) "🔦" else "💡", fontSize = 20.sp)
         }
 
-        // Live AI vision feedback (bottom overlay).
-        if (liveLabels.isNotEmpty() && verified == null) {
-            val visionText = liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
-            Text(
-                tr("الرؤية: ", "Vision: ") + visionText,
-                color = Color.White,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(10.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            )
+        // Bottom overlay: lock-on message (green) when ready, else live vision labels.
+        if (verified == null) {
+            if (lockedOn) {
+                Text(
+                    tr("تم التعرف على الكوب — اضغط للتأكيد ✓", "Cup recognized — tap to confirm ✓"),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(10.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(VeroGreen.copy(alpha = 0.85f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            } else if (liveLabels.isNotEmpty()) {
+                val visionText = liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
+                Text(
+                    tr("الرؤية: ", "Vision: ") + visionText,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(10.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
         }
 
         if (state is VerifyState.Analyzing) {
@@ -426,8 +477,12 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
 
     when (val s = state) {
         is VerifyState.Rejected -> MessageBox(
-            tr("لم يتم رصد كأس أو عبوة ماء! يرجى توجيه الكاميرا بوضوح", "No cup or water bottle detected! Aim the camera clearly") +
-                if (s.seen.isNotEmpty()) tr("\n(تم رصد: ${s.seen.joinToString("، ")})", "\n(detected: ${s.seen.joinToString(", ")})") else ""
+            if (s.isFood) {
+                tr("تم رصد طعام أو صحن! يرجى تصوير الكأس أو القارورة فقط 🚫", "Food or a plate detected! Please capture only the cup or bottle 🚫")
+            } else {
+                tr("لم يتم رصد كأس أو عبوة ماء! يرجى توجيه الكاميرا بوضوح", "No cup or water bottle detected! Aim the camera clearly") +
+                    if (s.seen.isNotEmpty()) tr("\n(تم رصد: ${s.seen.joinToString("، ")})", "\n(detected: ${s.seen.joinToString(", ")})") else ""
+            }
         )
         is VerifyState.Error -> MessageBox(s.message)
         else -> {}
@@ -435,7 +490,6 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
 
     Spacer(Modifier.height(12.dp))
 
-    // Quick volume selection.
     Text(tr("كم ستشرب؟ (مل)", "How much? (ml)"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(6.dp))
     Row(
@@ -465,7 +519,10 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
             enabled = state !is VerifyState.Analyzing && verified == null,
             modifier = Modifier.weight(1f).height(60.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0A1118))
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (lockedOn) VeroGreen else Color.White,
+                contentColor = Color(0xFF0A1118)
+            )
         ) {
             Text(
                 when (state) {
@@ -485,12 +542,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                 shape = RoundedCornerShape(20.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = VeroOrange, contentColor = Color.White)
             ) {
-                Text(
-                    tr("إجبار التأكيد 🤝", "Force confirm 🤝"),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
+                Text(tr("إجبار التأكيد 🤝", "Force confirm 🤝"), fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
         }
     }
