@@ -1,8 +1,8 @@
-# مراجعة تقنية شاملة — HydroForce Pro (هايدرو فورس برو)
+# مراجعة تقنية شاملة — VeroSip
 
 > تطبيق أندرويد لتذكير شرب الماء، فلسفته أن **التنبيه لا يتوقف إلا بعد إثبات الشرب عبر الكاميرا + الذكاء الاصطناعي**.
-> الحزمة: `com.hydroforce.pro` — الإصدار الحالي: **1.15.0** (`VERSION_CODE = 17`).
-> `minSdk = 26` ، `targetSdk = 34` ، `compileSdk = 34` ، لغة Kotlin + Jetpack Compose (Material 3) ، الواجهة ثنائية اللغة (عربي/إنجليزي) وتدعم RTL والوضع الليلي.
+> اسم العلامة المعروض: **VeroSip** (يبقى بالحروف اللاتينية دائماً، حتى في الواجهة العربية). الحزمة (ثابتة): `com.hydroforce.pro` — الإصدار الحالي: **1.16.0** (`VERSION_CODE = 18`).
+> `minSdk = 26` ، `targetSdk = 34` ، `compileSdk = 34` ، لغة Kotlin + Jetpack Compose (Material 3) ، الواجهة ثنائية اللغة (عربي/إنجليزي) وتدعم RTL والوضع الليلي (هوية Bio-Tech Aqua).
 
 ---
 
@@ -121,7 +121,8 @@ val interval = (awake / cups).coerceAtLeast(MIN_INTERVAL_MINUTES) // الحد ا
 
 - النتيجة تُغلّف في `HydrationResult(targetMl, cupsNeeded, intervalMinutes, awakeMinutes, items)`.
 - مثال (وزن 107 كغ، ذكر، عمر بالغ): الأساس 107×27 = 2889 + 250 (جنس) + (0/100 طول) = ~3.1–3.2 لتر عادي، و~3.7 لتر عند النشاط العالي.
-- `MIN_INTERVAL_MINUTES = 120` يمنع التنبيهات الأقرب من ساعتين. حجم الكوب الافتراضي 400 مل، والخيارات: `[200, 250, 330, 400, 500]`.
+- `MIN_INTERVAL_MINUTES = 60` يمنع التنبيهات الأقرب من ساعة. حجم الكوب الافتراضي 400 مل، والخيارات: `[200, 250, 330, 400, 500]`.
+- **رصيد الوقت المائي (Time Credit):** عند التوثيق تُحسب `earnedMinutes = (baseInterval × amount/cupSize).roundToInt().coerceAtLeast(30)`. إن كان ردّاً على منبه يرن/مستحق ⇒ التنبيه القادم بعد `now + earnedMinutes`. وإن كان توثيقاً استباقياً قبل موعد المنبه ⇒ يُمدَّد الموعد (ولا يُقصَّر) بسقف فاصل كامل من الآن.
 
 ### 3.2 نظام الجدولة والمنبهات (AlarmManager / ForegroundService)
 
@@ -145,13 +146,13 @@ val interval = (awake / cups).coerceAtLeast(MIN_INTERVAL_MINUTES) // الحد ا
 - `rescheduleFrom(anchor)`: يحسب الهدف والمستهلك اليوم (`totalSince(calendarDayStart)`)، ثم يختار التنبيه التالي: إن اكتمل الهدف ⇒ بداية نافذة اليقظة التالية، وإلا `nextReminder(anchor, interval)`.
 - `arm(...)`: نقطة التجميع التي تطبّق `adjustForMeetings` ثم تجدول وتخزّن الموعد **وتحدّث الويدجت**.
 - `adjustForMeetings(...)`: حلقة تدفع الوقت خارج: (1) أوقات النوم (`nextWindowStart`)، (2) نوافذ الوجبات (`ScheduleMath.mealPauseEnd`)، (3) الاجتماعات (`meetings.covering`).
-- `recordVerifiedDrink(source, drinkType)`: يُستدعى **فقط بعد** تأكيد الكاميرا — يُدرج `IntakeLog` بالكمية و`effectiveMl` حسب نوع المشروب، يصفّر الغفوات، ثم يعيد الجدولة من الآن (**هذا هو إعادة ضبط المؤقت عند الشرب الاستباقي**).
+- `recordVerifiedDrink(amountMl, source, drinkType)`: يُستدعى **فقط بعد** تأكيد الكاميرا — يستقبل **الكمية الفعلية** التي اختارها المستخدم، يُدرج `IntakeLog` بها و`effectiveMl` حسب نوع المشروب، يصفّر الغفوات، ثم يطبّق **معادلة رصيد الوقت المائي** لجدولة التنبيه القادم (مع احترام اكتمال الهدف → نافذة اليقظة التالية).
 - `rescheduleKeepingCountdown()`: يُستدعى عند حفظ الإعدادات — **يحافظ على العد التنازلي القائم** إن كان هناك تنبيه قادم صالح ضمن اليقظة، وإلا يعيد الحساب (إصلاح خلل تصفير العداد).
 - `snooze(minutes)` (حد أقصى `MAX_SNOOZES = 3`)، `schedulePostpone` (مكالمة، `CALL_POSTPONE_MINUTES = 5`)، `restore()` (بعد الإقلاع).
 
 **حسابات الوقت** — `data/ScheduleMath.kt`:
 - نافذة اليقظة من وقت الاستيقاظ حتى النوم (قد يتجاوز منتصف الليل)، **لا يُوضع أي تنبيه خارجها**.
-- `calendarDayStart` (إعادة ضبط التقدم عند منتصف الليل)، `isWorkTime`, `mealPauseEnd` (نافذة 30 دق قبل الوجبة و45 دق بعدها).
+- `currentHydrationCycleStart(now, wakeMinutes)` (بداية دورة اليقظة — التقدم اليومي يُحسب منها لا من منتصف الليل، فلا يتصفّر لمن يسهر بعد 12)، `calendarDayStart` (يُستخدم الآن في الإحصائيات فقط)، `isWorkTime`, `mealPauseEnd` (نافذة 30 دق قبل الوجبة و45 دق بعدها).
 
 ### 3.3 نظام التحقق بالكاميرا (CameraX + ML Kit)
 
@@ -165,13 +166,14 @@ ImageLabeling.getClient(
     ImageLabelerOptions.Builder().setConfidenceThreshold(CONFIDENCE_THRESHOLD).build()
 )
 ```
-- **الكلمات المفتاحية المقبولة** (يجب أن يطابقها تصنيف واحد على الأقل بثقة ≥ 0.65):
+- **الكلمات المفتاحية المقبولة** (يجب أن يطابقها تصنيف واحد على الأقل بثقة ≥ 0.65 — حُذفت `tableware` لمنع قبول الصحون الفارغة):
 ```kotlin
 val ACCEPTED_LABELS = setOf(
     "water", "bottle", "water bottle", "plastic bottle", "glass", "cup", "drink",
-    "liquid", "beverage", "tableware", "drinkware", "mug", "pitcher", "tumbler"
+    "liquid", "beverage", "drinkware", "mug", "pitcher", "tumbler"
 )
 ```
+- **إضافات Sprint 1:** شريط اختيار كمية سريع فوق زر الالتقاط `[100, 200, 300, 400, 500]` مل (الافتراضي = كوب المستخدم)، وتُمرَّر الكمية المختارة عبر `onVerified(selectedAmountMl)`؛ زر تشغيل/إيقاف الفلاش (`camera.cameraControl.enableTorch`)؛ وإطار تركيز بزوايا شعار VeroSip باللون السيان `#00E5FF` يتحول أخضر `#00E676` عند النجاح.
 - منطق القرار:
 ```kotlin
 val strong = labels.filter { it.confidence >= CONFIDENCE_THRESHOLD }
@@ -214,10 +216,10 @@ state = if (match != null) Verified(match.text) else Rejected(strong.take(4).map
 4. **بدء نشاط من الخلفية:** `AlarmService` يحاول فتح `AlarmVerifyActivity`؛ قد يُحجب على بعض الإصدارات، ويُعتمد حينها على `setFullScreenIntent`.
 5. **عكس الإشعار للساعة:** ساعات هواوي (HarmonyOS) تعكس **نص** الإشعار فقط عبر Huawei Health ولا تدعم **الأزرار التفاعلية** (تأجيل/توثيق) لتطبيقات أندرويد؛ التأجيل من المعصم يتطلب تطبيق ساعة أصلي (خارج النطاق الحالي). كما يتطلب تفعيل عكس الإشعارات يدوياً.
 6. **قاعدة البيانات Room:** الإصدار `version = 2` مع `MIGRATION_1_2` (أضاف `drinkType` و`effectiveMl`)؛ أي تغيير مستقبلي في المخطط يتطلب Migration للحفاظ على البيانات.
-7. **التقدم اليومي** يُحتسب من `calendarDayStart` (منتصف الليل)، بينما نافذة التنبيهات تعتمد وقت الاستيقاظ/النوم — انتبه للفرق عند المراجعة.
+7. **التقدم اليومي** يُحتسب الآن من `currentHydrationCycleStart` (بداية دورة اليقظة) فلا يتصفّر عند منتصف الليل لمن يسهر؛ أما شاشة الإحصائيات فما زالت تجمّع «اليوم» حسب التقويم (`calendarDayStart`).
 8. **الكاميرا:** لا تُحفظ أي صورة (تحليل في الذاكرة فقط)؛ دقة التحقق تعتمد نموذج ML Kit العام وقائمة `ACCEPTED_LABELS` وعتبة 0.65 — قد تُرفض عبوات غير معتادة أو تُقبل أجسام مشابهة.
 9. **التحديث الذاتي** يتطلب صلاحية «تثبيت تطبيقات من مصدر غير معروف» مرة واحدة، ويحمّل APK موقّعاً من GitHub Releases ويثبّته فوق الحالي (الحفاظ على البيانات مشروط ببقاء نفس مفتاح التوقيع عبر CI).
 
 ---
 
-*أُعدّ هذا التقرير آلياً من قراءة كود المشروع فعلياً عند الإصدار 1.15.0.*
+*أُعدّ هذا التقرير آلياً من قراءة كود المشروع فعلياً، وحُدّث عند الإصدار 1.16.0 (VeroSip — Sprint 1).*
