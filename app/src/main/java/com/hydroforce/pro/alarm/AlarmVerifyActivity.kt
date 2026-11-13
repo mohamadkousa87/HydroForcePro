@@ -163,10 +163,18 @@ private fun AlarmScreen(initialDiscreet: Boolean, onDone: () -> Unit) {
         CameraVerificationScreen(
             title = tr("أثبت أنك تشرب الآن", "Prove you're drinking now"),
             defaultAmountMl = profile.cupSizeMl,
-            onVerified = { amountMl ->
+            onVerified = { amountMl, viaPromise ->
                 scope.launch {
-                    HydrationManager.recordVerifiedDrink(context, amountMl, HydrationManager.SOURCE_ALARM, drinkType)
+                    val source = if (viaPromise) HydrationManager.SOURCE_PROMISE else HydrationManager.SOURCE_ALARM
+                    HydrationManager.recordVerifiedDrink(context, amountMl, source, drinkType)
                     AlarmService.stop(context)
+                    if (viaPromise) {
+                        Toast.makeText(
+                            context,
+                            tr(lang, "تم قبول التعهد، ثقتنا بك عالية! لا تنسَ شرب الماء 💙", "Promise accepted — we trust you! Don't forget to drink 💙"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                     onDone()
                 }
             }

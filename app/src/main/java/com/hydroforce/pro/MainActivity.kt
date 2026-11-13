@@ -196,13 +196,14 @@ private fun HydroNavHost(vm: MainViewModel) {
                         "Drinking now? Verify it 📷"
                     ),
                     defaultAmountMl = profile.cupSizeMl,
-                    onVerified = { amountMl ->
-                        vm.onManualDrinkVerified(amountMl) {
-                            Toast.makeText(
-                                context,
-                                tr(lang, "تمت إضافة $amountMl مل وتحديث المؤقت ⏱️", "Added $amountMl ml and updated the timer ⏱️"),
-                                Toast.LENGTH_LONG
-                            ).show()
+                    onVerified = { amountMl, viaPromise ->
+                        vm.onManualDrinkVerified(amountMl, viaPromise) {
+                            val msg = if (viaPromise) {
+                                tr(lang, "تم قبول التعهد، ثقتنا بك عالية! لا تنسَ شرب الماء 💙", "Promise accepted — we trust you! Don't forget to drink 💙")
+                            } else {
+                                tr(lang, "تمت إضافة $amountMl مل وتحديث المؤقت ⏱️", "Added $amountMl ml and updated the timer ⏱️")
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             nav.popBackStack()
                         }
                     }

@@ -130,10 +130,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _pendingDrinkType.value = type
     }
 
-    /** Proactive "I drank now": only reachable after ML Kit verification. [amountMl] is the chosen volume. */
-    fun onManualDrinkVerified(amountMl: Int, onDone: () -> Unit) {
+    /**
+     * Proactive "I drank now". [amountMl] is the chosen volume; [viaPromise] = user used the
+     * emergency failsafe (AI couldn't detect the cup), recorded with SOURCE_PROMISE.
+     */
+    fun onManualDrinkVerified(amountMl: Int, viaPromise: Boolean, onDone: () -> Unit) {
         viewModelScope.launch {
-            HydrationManager.recordVerifiedDrink(getApplication(), amountMl, HydrationManager.SOURCE_MANUAL, _pendingDrinkType.value)
+            val source = if (viaPromise) HydrationManager.SOURCE_PROMISE else HydrationManager.SOURCE_MANUAL
+            HydrationManager.recordVerifiedDrink(getApplication(), amountMl, source, _pendingDrinkType.value)
             AlarmService.stop(getApplication())
             _pendingDrinkType.value = DrinkType.WATER
             onDone()

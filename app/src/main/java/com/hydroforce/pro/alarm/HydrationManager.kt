@@ -22,6 +22,8 @@ object HydrationManager {
 
     const val SOURCE_ALARM = "alarm"
     const val SOURCE_MANUAL = "manual"
+    /** Recorded when the user used the emergency "sip promise" failsafe (AI couldn't detect the cup). */
+    const val SOURCE_PROMISE = "promise"
 
     /**
      * Pushes [at] out of sleep windows and scheduled meetings: resumes right after a meeting ends,

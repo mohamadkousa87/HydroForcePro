@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -67,24 +69,30 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeler
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.hydroforce.pro.ui.HydroDanger
 import com.hydroforce.pro.ui.LocalLanguage
 import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.delay
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
-/** Labels (lower-case) that count as proof of a cup / glass / bottle of water. */
+/** Labels (lower-case) that count as proof of a cup / glass / bottle of a drink. */
 val ACCEPTED_LABELS = setOf(
     "water", "bottle", "water bottle", "plastic bottle", "glass", "cup", "drink", "liquid",
-    "beverage", "drinkware", "mug", "pitcher", "tumbler"
+    "beverage", "drinkware", "mug", "pitcher", "tumbler", "teapot", "tea", "coffee",
+    "coffeecup", "tableware", "glassware", "ceramic", "bowl"
 )
-const val CONFIDENCE_THRESHOLD = 0.65f
+// Lenient threshold: transparent/ceramic cups score low, so accept from 0.40.
+const val CONFIDENCE_THRESHOLD = 0.40f
 
 /** VeroSip brand colors used in the viewfinder overlay. */
 private val VeroCyan = Color(0xFF00E5FF)
 private val VeroGreen = Color(0xFF00E676)
+private val VeroOrange = Color(0xFFFF8F3A)
 
 /** Quick volume options (ml) shown above the capture button. */
 private val VOLUME_OPTIONS = listOf(100, 200, 300, 400, 500)
@@ -97,17 +105,38 @@ private sealed interface VerifyState {
     data class Error(val message: String) : VerifyState
 }
 
+/** Runs the live preview labeler (throttled) and reports the top labels back for on-screen feedback. */
+@OptIn(ExperimentalGetImage::class)
+private fun analyzeLiveFrame(
+    proxy: ImageProxy,
+    labeler: ImageLabeler,
+    lastTs: AtomicLong,
+    onLabels: (List<Pair<String, Float>>) -> Unit
+) {
+    val mediaImage = proxy.image
+    val now = System.currentTimeMillis()
+    if (mediaImage == null || now - lastTs.get() < 600) {
+        proxy.close()
+        return
+    }
+    lastTs.set(now)
+    labeler.process(InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees))
+        .addOnSuccessListener { labels ->
+            onLabels(labels.sortedByDescending { it.confidence }.take(3).map { it.text to it.confidence })
+        }
+        .addOnCompleteListener { proxy.close() }
+}
+
 /**
  * Live CameraX preview + capture, verified on-device with ML Kit image labeling.
- * Frames are processed in memory only and released immediately: nothing is written to storage.
- * [defaultAmountMl] pre-selects the quick-volume chip; [onVerified] returns the chosen volume.
+ * [defaultAmountMl] pre-selects the quick-volume chip; [onVerified] returns (chosenMl, viaPromise).
  */
 @Composable
 fun CameraVerificationScreen(
     modifier: Modifier = Modifier,
     title: String = "وثّق شرب الماء بالكاميرا",
     defaultAmountMl: Int = 400,
-    onVerified: (Int) -> Unit
+    onVerified: (Int, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     var hasPermission by remember {
@@ -127,12 +156,7 @@ fun CameraVerificationScreen(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White,
-            textAlign = TextAlign.Center
-        )
+        Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
             tr("وجّه الكاميرا الحية نحو كأس أو عبوة الماء ثم اضغط التقاط", "Point the live camera at your cup or bottle, then tap Capture"),
@@ -169,13 +193,15 @@ fun CameraVerificationScreen(
 }
 
 @Composable
-private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
+private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val lang = LocalLanguage.current
     var state by remember { mutableStateOf<VerifyState>(VerifyState.Ready) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var torchOn by remember { mutableStateOf(false) }
+    var captureAttempts by remember { mutableStateOf(0) }
+    var liveLabels by remember { mutableStateOf<List<Pair<String, Float>>>(emptyList()) }
     var selectedAmount by remember {
         mutableIntStateOf(VOLUME_OPTIONS.minByOrNull { abs(it - defaultAmountMl) } ?: 400)
     }
@@ -187,14 +213,19 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
         }
     }
     val imageCapture = remember {
-        ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .build()
+        ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
     }
+    // Capture labeler (decision) + live labeler (low threshold, for on-screen feedback).
     val labeler = remember {
-        ImageLabeling.getClient(
-            ImageLabelerOptions.Builder().setConfidenceThreshold(CONFIDENCE_THRESHOLD).build()
-        )
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(CONFIDENCE_THRESHOLD).build())
+    }
+    val liveLabeler = remember {
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.20f).build())
+    }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val lastAnalysisTs = remember { AtomicLong(0L) }
+    val imageAnalysis = remember {
+        ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -205,12 +236,16 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
+                imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
+                    analyzeLiveFrame(proxy, liveLabeler, lastAnalysisTs) { labels -> liveLabels = labels }
+                }
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
-                    imageCapture
+                    imageCapture,
+                    imageAnalysis
                 )
             } catch (e: Exception) {
                 state = VerifyState.Error(tr(lang, "تعذر تشغيل الكاميرا: ${e.message ?: ""}", "Couldn't start the camera: ${e.message ?: ""}"))
@@ -218,10 +253,14 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
         }, ContextCompat.getMainExecutor(context))
         onDispose {
             if (future.isDone) runCatching { future.get().unbindAll() }
+            runCatching { analysisExecutor.shutdown() }
         }
     }
     DisposableEffect(Unit) {
-        onDispose { labeler.close() }
+        onDispose {
+            labeler.close()
+            liveLabeler.close()
+        }
     }
 
     val verified = state as? VerifyState.Verified
@@ -229,7 +268,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
         if (verified != null) {
             playSuccessTone()
             delay(1400)
-            onVerified(selectedAmount)
+            onVerified(selectedAmount, false)
         }
     }
 
@@ -248,6 +287,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
                         image.close()
                     }
                     if (bitmap == null) {
+                        captureAttempts++
                         state = VerifyState.Error(tr(lang, "تعذرت قراءة الصورة، حاول مرة أخرى", "Couldn't read the image, try again"))
                         return
                     }
@@ -255,21 +295,22 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
                         .addOnSuccessListener { labels ->
                             val strong = labels.filter { it.confidence >= CONFIDENCE_THRESHOLD }
                             val match = strong.firstOrNull { it.text.lowercase() in ACCEPTED_LABELS }
-                            state = if (match != null) {
-                                VerifyState.Verified(match.text)
+                            if (match != null) {
+                                state = VerifyState.Verified(match.text)
                             } else {
-                                VerifyState.Rejected(strong.take(4).map { it.text })
+                                captureAttempts++
+                                state = VerifyState.Rejected(strong.take(4).map { it.text })
                             }
                         }
                         .addOnFailureListener {
+                            captureAttempts++
                             state = VerifyState.Error(tr(lang, "فشل التحليل: ${it.message ?: ""}", "Analysis failed: ${it.message ?: ""}"))
                         }
-                        .addOnCompleteListener {
-                            bitmap.recycle()
-                        }
+                        .addOnCompleteListener { bitmap.recycle() }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    captureAttempts++
                     state = VerifyState.Error(tr(lang, "فشل الالتقاط: ${exception.message ?: ""}", "Capture failed: ${exception.message ?: ""}"))
                 }
             }
@@ -306,13 +347,9 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
             val arm = side * 0.18f
             val sw = 4.dp.toPx()
             fun l(a: Offset, b: Offset) = drawLine(frameColor, a, b, strokeWidth = sw, cap = StrokeCap.Round)
-            // top-left
             l(Offset(left, top), Offset(left + arm, top)); l(Offset(left, top), Offset(left, top + arm))
-            // top-right
             l(Offset(right, top), Offset(right - arm, top)); l(Offset(right, top), Offset(right, top + arm))
-            // bottom-left
             l(Offset(left, bottom), Offset(left + arm, bottom)); l(Offset(left, bottom), Offset(left, bottom - arm))
-            // bottom-right
             l(Offset(right, bottom), Offset(right - arm, bottom)); l(Offset(right, bottom), Offset(right, bottom - arm))
         }
 
@@ -333,11 +370,26 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
             Text(if (torchOn) "🔦" else "💡", fontSize = 20.sp)
         }
 
+        // Live AI vision feedback (bottom overlay).
+        if (liveLabels.isNotEmpty() && verified == null) {
+            val visionText = liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
+            Text(
+                tr("الرؤية: ", "Vision: ") + visionText,
+                color = Color.White,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
+
         if (state is VerifyState.Analyzing) {
             Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.45f)),
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -354,17 +406,11 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
             modifier = Modifier.align(Alignment.Center)
         ) {
             Column(
-                Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(24.dp),
+                Modifier.clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
-                    Modifier
-                        .size(88.dp)
-                        .clip(CircleShape)
-                        .background(VeroGreen),
+                    Modifier.size(88.dp).clip(CircleShape).background(VeroGreen),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("✓", color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
@@ -390,16 +436,10 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
     Spacer(Modifier.height(12.dp))
 
     // Quick volume selection.
-    Text(
-        tr("كم ستشرب؟ (مل)", "How much? (ml)"),
-        color = Color.White,
-        style = MaterialTheme.typography.bodyMedium
-    )
+    Text(tr("كم ستشرب؟ (مل)", "How much? (ml)"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(6.dp))
     Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         VOLUME_OPTIONS.forEach { ml ->
@@ -419,22 +459,49 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
 
     Spacer(Modifier.height(12.dp))
 
-    Button(
-        onClick = { capture() },
-        enabled = state !is VerifyState.Analyzing && verified == null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(60.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0A1118))
-    ) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Button(
+            onClick = { capture() },
+            enabled = state !is VerifyState.Analyzing && verified == null,
+            modifier = Modifier.weight(1f).height(60.dp),
+            shape = RoundedCornerShape(20.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0A1118))
+        ) {
+            Text(
+                when (state) {
+                    is VerifyState.Rejected, is VerifyState.Error -> tr("📸 إعادة الالتقاط", "📸 Retake")
+                    else -> tr("📸 التقاط ($selectedAmount مل)", "📸 Capture ($selectedAmount ml)")
+                },
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // Smart emergency failsafe: appears after >= 2 failed attempts.
+        if (captureAttempts >= 2 && verified == null) {
+            Button(
+                onClick = { onVerified(selectedAmount, true) },
+                modifier = Modifier.weight(1f).height(60.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = VeroOrange, contentColor = Color.White)
+            ) {
+                Text(
+                    tr("إجبار التأكيد 🤝", "Force confirm 🤝"),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+    if (captureAttempts >= 2 && verified == null) {
+        Spacer(Modifier.height(6.dp))
         Text(
-            when (state) {
-                is VerifyState.Rejected, is VerifyState.Error -> tr("📸 إعادة الالتقاط", "📸 Retake")
-                else -> tr("📸 التقاط والتحقق ($selectedAmount مل)", "📸 Capture & verify ($selectedAmount ml)")
-            },
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
+            tr("يصعب رصد الكأس؟ \"أتعهد بالشرب\" — ثقتنا بك عالية 💙", "Hard to detect? \"I promise to drink\" — we trust you 💙"),
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
@@ -442,11 +509,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int) -> Unit) {
 @Composable
 private fun MessageBox(text: String) {
     Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(HydroDanger.copy(alpha = 0.9f))
-            .padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(HydroDanger.copy(alpha = 0.9f)).padding(14.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Text("⚠️ $text", color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
