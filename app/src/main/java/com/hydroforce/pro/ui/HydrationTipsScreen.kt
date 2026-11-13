@@ -54,7 +54,7 @@ private fun accentFor(category: TipCategory): Color = when (category) {
 }
 
 @Composable
-fun HydrationTipsScreen(onBack: () -> Unit) {
+fun HydrationTipsScreen(onBack: (() -> Unit)? = null) {
     val lang = LocalLanguage.current
     var selected by remember { mutableStateOf<TipCategory?>(null) }
     val tipOfDay = remember { HydrationTips.tipOfTheDay() }
@@ -71,7 +71,9 @@ fun HydrationTipsScreen(onBack: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back"), color = Color.White) }
+                if (onBack != null) {
+                    TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back"), color = Color.White) }
+                }
                 Column(Modifier.weight(1f)) {
                     Text(tr("💡 صحة الترطيب", "💡 Hydration health"), color = Color.White, style = MaterialTheme.typography.titleLarge)
                     Text(tr("نصائح وحقائق لجسم أكثر ترطيباً", "Tips and facts for a better-hydrated body"), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)

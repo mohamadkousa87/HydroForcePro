@@ -23,6 +23,9 @@ enum class ActivityLevel(
     fun description(lang: Language): String = if (lang == Language.EN) descriptionEn else description
 }
 
+/** Display unit for volumes. Internal storage/math is ALWAYS in ml. */
+enum class VolumeUnit { ML, FL_OZ }
+
 enum class FastingMode(val label: String, val labelEn: String) {
     NONE("بدون", "Off"),
     DRY_FAST("صيام جاف", "Dry fast"),
@@ -69,7 +72,9 @@ data class UserProfile(
     val fastEndMinutes: Int = 18 * 60 + 30,    // Iftar / fast end
     val suhoorReminder: Boolean = true,
     // Daily medical tip notification
-    val dailyTipsEnabled: Boolean = true
+    val dailyTipsEnabled: Boolean = true,
+    // Display-only unit (math stays in ml)
+    val volumeUnit: VolumeUnit = VolumeUnit.ML
 )
 
 /** Enabled meal times (minutes-of-day) to pause reminders around; empty when the feature is off. */

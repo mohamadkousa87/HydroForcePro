@@ -54,6 +54,7 @@ class SettingsRepository(context: Context) {
         val FAST_END = intPreferencesKey("fast_end")
         val SUHOOR = booleanPreferencesKey("suhoor_reminder")
         val DAILY_TIPS = booleanPreferencesKey("daily_tips_enabled")
+        val VOLUME_UNIT = stringPreferencesKey("volume_unit")
         // Transient cycle state (not part of the medical profile)
         val WORKOUT_END = longPreferencesKey("workout_end")
         val WORKOUT_BONUS_ML = intPreferencesKey("workout_bonus_ml")
@@ -148,6 +149,7 @@ class SettingsRepository(context: Context) {
             it[Keys.FAST_END] = p.fastEndMinutes
             it[Keys.SUHOOR] = p.suhoorReminder
             it[Keys.DAILY_TIPS] = p.dailyTipsEnabled
+            it[Keys.VOLUME_UNIT] = p.volumeUnit.name
         }
     }
 
@@ -222,7 +224,8 @@ class SettingsRepository(context: Context) {
             fastStartMinutes = this[Keys.FAST_START] ?: d.fastStartMinutes,
             fastEndMinutes = this[Keys.FAST_END] ?: d.fastEndMinutes,
             suhoorReminder = this[Keys.SUHOOR] ?: d.suhoorReminder,
-            dailyTipsEnabled = this[Keys.DAILY_TIPS] ?: d.dailyTipsEnabled
+            dailyTipsEnabled = this[Keys.DAILY_TIPS] ?: d.dailyTipsEnabled,
+            volumeUnit = this[Keys.VOLUME_UNIT]?.let { runCatching { VolumeUnit.valueOf(it) }.getOrNull() } ?: d.volumeUnit
         )
     }
 }

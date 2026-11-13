@@ -1,6 +1,7 @@
 package com.hydroforce.pro.data
 
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -114,6 +115,27 @@ object HydrationCalculator {
 }
 
 fun formatMl(ml: Int): String = String.format(Locale.US, "%,d", ml)
+
+private const val ML_PER_FL_OZ = 29.5735
+
+/** Unit label only (e.g. "ml" / "مل" or "fl oz" / "أونصة"). */
+fun volumeUnitLabel(unit: VolumeUnit, lang: Language): String =
+    if (unit == VolumeUnit.FL_OZ) (if (lang == Language.EN) "fl oz" else "أونصة")
+    else (if (lang == Language.EN) "ml" else "مل")
+
+/**
+ * Central display formatter: internal values are ml, shown in the user's unit.
+ * ml → "250 مل"/"250 ml"; fl oz → "8.5 fl oz"/"8.5 أونصة" (clean integer when whole).
+ */
+fun formatVolume(ml: Int, unit: VolumeUnit, lang: Language): String {
+    if (unit == VolumeUnit.FL_OZ) {
+        val oz = ml / ML_PER_FL_OZ
+        val num = if (abs(oz - oz.roundToInt()) < 0.05) oz.roundToInt().toString()
+        else String.format(Locale.US, "%.1f", oz)
+        return "$num ${volumeUnitLabel(unit, lang)}"
+    }
+    return "${formatMl(ml)} ${volumeUnitLabel(unit, lang)}"
+}
 
 fun formatClock(minutes: Int, lang: Language = Language.AR): String {
     val h = minutes / 60

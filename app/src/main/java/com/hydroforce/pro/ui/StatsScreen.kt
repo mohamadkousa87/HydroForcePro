@@ -43,19 +43,22 @@ import java.util.Locale
 fun StatsScreen(
     stats: StatsData?,
     onExport: () -> Unit,
-    onBack: () -> Unit
+    onBack: (() -> Unit)? = null,
+    embedded: Boolean = false
 ) {
     Column(
         Modifier
             .fillMaxSize()
-            .statusBarsPadding()
+            .then(if (embedded) Modifier else Modifier.statusBarsPadding())
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
-            Text(tr("📊 الإحصائيات والتاريخ", "📊 Stats & history"), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+        if (onBack != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
+                Text(tr("📊 الإحصائيات والتاريخ", "📊 Stats & history"), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+            }
         }
 
         if (stats == null) {

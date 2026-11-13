@@ -1,7 +1,6 @@
 package com.hydroforce.pro.ui
 
 import android.app.Activity
-import android.app.TimePickerDialog
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -46,7 +45,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -55,21 +53,18 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hydroforce.pro.data.ActivityLevel
 import com.hydroforce.pro.data.CUP_SIZES
-import com.hydroforce.pro.data.FastingMode
-import com.hydroforce.pro.data.FastingRecurrence
 import com.hydroforce.pro.data.Gender
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.UserProfile
-import com.hydroforce.pro.data.formatClock
+import com.hydroforce.pro.data.VolumeUnit
 import com.hydroforce.pro.data.formatDuration
-import com.hydroforce.pro.data.formatMl
+import com.hydroforce.pro.data.formatVolume
 import com.hydroforce.pro.update.UpdateSection
-import com.hydroforce.pro.update.rememberUpdateController
 import java.util.Locale
 
-/** Shared by onboarding and settings: medical profile, container, and daily schedule. */
+/** The "Profile" tab (and first-run onboarding): personal data, container, units, tone, appearance. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -84,25 +79,9 @@ fun ProfileScreen(
     var heightText by rememberSaveable { mutableStateOf(initial.heightCm.toString()) }
     var activity by rememberSaveable { mutableStateOf(initial.activity) }
     var cup by rememberSaveable { mutableIntStateOf(initial.cupSizeMl) }
-    var wake by rememberSaveable { mutableIntStateOf(initial.wakeMinutes) }
-    var sleep by rememberSaveable { mutableIntStateOf(initial.sleepMinutes) }
-    var workEnabled by rememberSaveable { mutableStateOf(initial.workModeEnabled) }
-    var workStart by rememberSaveable { mutableIntStateOf(initial.workStartMinutes) }
-    var workEnd by rememberSaveable { mutableIntStateOf(initial.workEndMinutes) }
+    var volumeUnit by rememberSaveable { mutableStateOf(initial.volumeUnit) }
     var ringtoneUri by rememberSaveable { mutableStateOf(initial.ringtoneUri) }
     var vibration by rememberSaveable { mutableStateOf(initial.vibrationEnabled) }
-    var mealsEnabled by rememberSaveable { mutableStateOf(initial.mealsEnabled) }
-    var breakfast by rememberSaveable { mutableIntStateOf(initial.breakfastMinutes) }
-    var lunch by rememberSaveable { mutableIntStateOf(initial.lunchMinutes) }
-    var dinner by rememberSaveable { mutableIntStateOf(initial.dinnerMinutes) }
-    var breakfastOn by rememberSaveable { mutableStateOf(initial.breakfastOn) }
-    var lunchOn by rememberSaveable { mutableStateOf(initial.lunchOn) }
-    var dinnerOn by rememberSaveable { mutableStateOf(initial.dinnerOn) }
-    var fastingMode by rememberSaveable { mutableStateOf(initial.fastingMode) }
-    var fastingRecurrence by rememberSaveable { mutableStateOf(initial.fastingRecurrence) }
-    var fastStart by rememberSaveable { mutableIntStateOf(initial.fastStartMinutes) }
-    var fastEnd by rememberSaveable { mutableIntStateOf(initial.fastEndMinutes) }
-    var suhoorReminder by rememberSaveable { mutableStateOf(initial.suhoorReminder) }
     var dailyTipsEnabled by rememberSaveable { mutableStateOf(initial.dailyTipsEnabled) }
 
     val age = ageText.toIntOrNull()
@@ -111,40 +90,23 @@ fun ProfileScreen(
     val ageError = age == null || age !in 5..120
     val weightError = weight == null || weight !in 20f..300f
     val heightError = height == null || height !in 80..250
-    val sleepError = wake == sleep
-    val valid = !ageError && !weightError && !heightError && !sleepError
+    val valid = !ageError && !weightError && !heightError
 
-    val draft = UserProfile(
+    // Keep all schedule/fasting/meal fields from [initial]; this screen only edits personal settings.
+    val draft = initial.copy(
         gender = gender,
         age = age ?: initial.age,
         weightKg = weight ?: initial.weightKg,
         heightCm = height ?: initial.heightCm,
         activity = activity,
         cupSizeMl = cup,
-        wakeMinutes = wake,
-        sleepMinutes = sleep,
-        workModeEnabled = workEnabled,
-        workStartMinutes = workStart,
-        workEndMinutes = workEnd,
+        volumeUnit = volumeUnit,
         ringtoneUri = ringtoneUri,
         vibrationEnabled = vibration,
-        mealsEnabled = mealsEnabled,
-        breakfastMinutes = breakfast,
-        lunchMinutes = lunch,
-        dinnerMinutes = dinner,
-        breakfastOn = breakfastOn,
-        lunchOn = lunchOn,
-        dinnerOn = dinnerOn,
-        fastingMode = fastingMode,
-        fastingRecurrence = fastingRecurrence,
-        fastStartMinutes = fastStart,
-        fastEndMinutes = fastEnd,
-        suhoorReminder = suhoorReminder,
         dailyTipsEnabled = dailyTipsEnabled
     )
     val lang = LocalLanguage.current
     val result = HydrationCalculator.calculate(draft, lang)
-    val ml = tr("مل", "ml")
 
     Column(
         Modifier
@@ -160,7 +122,7 @@ fun ProfileScreen(
                 TextButton(onClick = onBack) { Text(tr("→ رجوع", "→ Back")) }
             }
             Text(
-                if (isOnboarding) tr("مرحباً بك في VeroSip 💧", "Welcome to VeroSip 💧") else tr("الملف الطبي والجدول", "Medical profile & schedule"),
+                if (isOnboarding) tr("مرحباً بك في VeroSip 💧", "Welcome to VeroSip 💧") else tr("👤 ملفي", "👤 Profile"),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -168,8 +130,8 @@ fun ProfileScreen(
         if (isOnboarding) {
             Text(
                 tr(
-                    "أدخل بياناتك لحساب احتياجك الطبي اليومي من الماء وتوزيع التنبيهات على ساعات يقظتك.",
-                    "Enter your details to compute your daily medical water need and spread reminders across your waking hours."
+                    "أدخل بياناتك لحساب احتياجك الطبي اليومي من الماء. يمكنك ضبط الجدول والصيام لاحقاً من تبويب «جدولي».",
+                    "Enter your details to compute your daily medical water need. You can set your schedule & fasting later in the Schedule tab."
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -220,52 +182,22 @@ fun ProfileScreen(
                         Text(level.label(lang), fontWeight = FontWeight.SemiBold)
                         Text(level.description(lang), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text("+${level.bonusMl} $ml", color = HydroBlue, fontWeight = FontWeight.SemiBold)
+                    Text("+${formatVolume(level.bonusMl, volumeUnit, lang)}", color = HydroBlue, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
-        Section(tr("🥤 حجم الكأس / العبوة المعتادة", "🥤 Usual cup / bottle size")) {
+        Section(tr("🥤 وحدة القياس وحجم الكأس", "🥤 Unit & cup size")) {
+            Text(tr("وحدة العرض", "Display unit"), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = volumeUnit == VolumeUnit.ML, onClick = { volumeUnit = VolumeUnit.ML }, label = { Text(tr("مل", "ml")) })
+                FilterChip(selected = volumeUnit == VolumeUnit.FL_OZ, onClick = { volumeUnit = VolumeUnit.FL_OZ }, label = { Text(tr("أونصة", "fl oz")) })
+            }
+            Text(tr("حجم الكأس المعتاد", "Usual cup size"), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CUP_SIZES.forEach {
-                    FilterChip(selected = cup == it, onClick = { cup = it }, label = { Text("$it $ml") })
+                    FilterChip(selected = cup == it, onClick = { cup = it }, label = { Text(formatVolume(it, volumeUnit, lang)) })
                 }
-            }
-        }
-
-        Section(tr("🕒 الجدول اليومي", "🕒 Daily schedule")) {
-            TimeRow(tr("☀️ وقت الاستيقاظ", "☀️ Wake-up time"), wake) { wake = it }
-            TimeRow(tr("🌙 وقت النوم", "🌙 Bedtime"), sleep) { sleep = it }
-            if (sleepError) {
-                Text(tr("وقت النوم يجب أن يختلف عن وقت الاستيقاظ", "Bedtime must differ from wake-up time"), color = MaterialTheme.colorScheme.error)
-            } else {
-                Text(
-                    tr(
-                        "ساعات اليقظة: ${formatDuration(result.awakeMinutes, lang)} — لا تنبيهات إطلاقاً أثناء النوم 😴",
-                        "Waking hours: ${formatDuration(result.awakeMinutes, lang)} — no reminders at all during sleep 😴"
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            HorizontalDivider(Modifier.padding(vertical = 6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(tr("💼 وضع العمل الهادئ", "💼 Quiet work mode"), fontWeight = FontWeight.SemiBold)
-                    Text(
-                        tr(
-                            "اهتزاز ونغمة خفيفة مع زر كتم خلال ساعات العمل — والتوثيق بالكاميرا يبقى إلزامياً",
-                            "Vibration and a soft chime with a mute button during work hours — camera verification stays mandatory"
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = workEnabled, onCheckedChange = { workEnabled = it })
-            }
-            if (workEnabled) {
-                TimeRow(tr("بداية العمل", "Work start"), workStart) { workStart = it }
-                TimeRow(tr("نهاية العمل", "Work end"), workEnd) { workEnd = it }
             }
         }
 
@@ -275,79 +207,6 @@ fun ProfileScreen(
             onRingtoneChange = { ringtoneUri = it },
             onVibrationChange = { vibration = it }
         )
-
-        Section(tr("🍽️ التوقف حول الوجبات", "🍽️ Meal pauses")) {
-            val mealsLocked = fastingMode == FastingMode.DRY_FAST
-            if (mealsLocked) {
-                Text(
-                    tr(
-                        "متوقف مؤقتاً أثناء تفعيل الصيام الجاف (تُطبق راحة وجبة 45 دقيقة تلقائياً بعد انتهاء الصيام).",
-                        "Paused automatically while Dry Fast is active (a 45-min meal break is applied after Fast end)."
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = HydroWarn
-                )
-            }
-            Column(Modifier.alpha(if (mealsLocked) 0.5f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(tr("إيقاف التنبيهات وقت الأكل", "Pause reminders at meal times"), fontWeight = FontWeight.SemiBold)
-                        Text(
-                            tr("يتوقف التنبيه 30 دقيقة قبل الوجبة و45 دقيقة بعدها.", "Reminders stop 30 min before and 45 min after each meal."),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(checked = mealsEnabled, enabled = !mealsLocked, onCheckedChange = { mealsEnabled = it })
-                }
-                if (mealsEnabled) {
-                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    MealRow(tr("🍳 الفطور", "🍳 Breakfast"), breakfastOn, breakfast, mealsLocked, { breakfastOn = it }) { breakfast = it }
-                    MealRow(tr("🍚 الغداء", "🍚 Lunch"), lunchOn, lunch, mealsLocked, { lunchOn = it }) { lunch = it }
-                    MealRow(tr("🍲 العشاء", "🍲 Dinner"), dinnerOn, dinner, mealsLocked, { dinnerOn = it }) { dinner = it }
-                }
-            }
-        }
-
-        Section(tr("⏳ نظام الصيام", "⏳ Fasting mode")) {
-            Text(tr("النمط", "Mode"), style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FastingMode.entries.forEach {
-                    FilterChip(selected = fastingMode == it, onClick = { fastingMode = it }, label = { Text(it.label(lang)) })
-                }
-            }
-            if (fastingMode != FastingMode.NONE) {
-                Text(tr("التكرار", "Recurrence"), style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FastingRecurrence.entries.forEach {
-                        FilterChip(selected = fastingRecurrence == it, onClick = { fastingRecurrence = it }, label = { Text(it.label(lang)) })
-                    }
-                }
-                TimeRow(tr("🌅 بدء الصيام", "🌅 Fast start"), fastStart) { fastStart = it }
-                TimeRow(tr("🌇 انتهاء الصيام", "🌇 Fast end"), fastEnd) { fastEnd = it }
-                if (fastingMode == FastingMode.DRY_FAST) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(tr("تنبيه ما قبل الصيام", "Pre-fast reminder"), fontWeight = FontWeight.SemiBold)
-                            Text(
-                                tr("تذكير أخير بالشرب قبل بدء الصيام بـ 30 دقيقة", "Final drink nudge 30 min before fast starts"),
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(checked = suhoorReminder, onCheckedChange = { suhoorReminder = it })
-                    }
-                    Text(
-                        tr("تتوقف التنبيهات خلال ساعات الصيام، ثم تُوزع بانتظام بعد انتهاء الصيام.", "Reminders pause during fasting hours, then distribute evenly after fast ends."),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Text(
-                        tr("الصيام المتقطع يضيف +10% للهدف ويتجاهل توقف الوجبات ضمن نافذة الصيام.", "Intermittent fasting adds +10% to the goal and ignores meal pauses inside the fasting window."),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
 
         Section(tr("💡 إشعار المعلومة الطبية اليومية", "💡 Daily medical tip")) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -362,12 +221,11 @@ fun ProfileScreen(
             }
         }
 
-        ResultCard(result, cup, title = tr("📋 هدفك الطبي اليومي", "📋 Your daily medical goal"))
+        ResultCard(result, cup, volumeUnit, title = tr("📋 هدفك الطبي اليومي", "📋 Your daily medical goal"))
 
         if (!isOnboarding) {
             ThemeModeSection()
-            val updateController = rememberUpdateController()
-            UpdateSection(updateController)
+            UpdateSection(com.hydroforce.pro.update.rememberUpdateController())
         }
 
         Button(
@@ -389,32 +247,6 @@ private fun bmiLabel(bmi: Float, lang: Language) = when {
     bmi < 25f -> if (lang == Language.EN) "Normal" else "طبيعي"
     bmi < 30f -> if (lang == Language.EN) "Overweight" else "زيادة وزن"
     else -> if (lang == Language.EN) "Obese" else "سمنة"
-}
-
-@Composable
-private fun MealRow(
-    label: String,
-    enabled: Boolean,
-    minutes: Int,
-    locked: Boolean,
-    onEnabledChange: (Boolean) -> Unit,
-    onPick: (Int) -> Unit
-) {
-    val context = LocalContext.current
-    val lang = LocalLanguage.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Switch(checked = enabled, enabled = !locked, onCheckedChange = onEnabledChange)
-        Spacer(Modifier.width(8.dp))
-        Text(label, Modifier.weight(1f), color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-        androidx.compose.material3.OutlinedButton(
-            onClick = {
-                TimePickerDialog(context, { _, h, m -> onPick(h * 60 + m) }, minutes / 60, minutes % 60, false).show()
-            },
-            enabled = enabled && !locked,
-            border = BorderStroke(1.dp, HydroBlue),
-            shape = RoundedCornerShape(12.dp)
-        ) { Text(formatClock(minutes, lang)) }
-    }
 }
 
 @Composable
@@ -451,9 +283,7 @@ private fun AlarmSoundSection(
     ) { uri ->
         if (uri != null) {
             runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             onRingtoneChange(uri.toString())
         }
@@ -464,11 +294,6 @@ private fun AlarmSoundSection(
     Section(tr("🔔 نغمة التنبيه والاهتزاز", "🔔 Alarm tone & vibration")) {
         Text(tr("النغمة الحالية:", "Current tone:"), style = MaterialTheme.typography.labelLarge)
         Text(ringtoneTitle, fontWeight = FontWeight.SemiBold, color = HydroBlue)
-        Text(
-            tr("تُستخدم نفس النغمة في الوضع العادي والوضع الهادئ.", "The same tone is used in both normal and quiet modes."),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             androidx.compose.material3.OutlinedButton(
                 onClick = {
@@ -555,26 +380,7 @@ private fun NumberField(
 }
 
 @Composable
-private fun TimeRow(label: String, minutes: Int, onPick: (Int) -> Unit) {
-    val context = LocalContext.current
-    val lang = LocalLanguage.current
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, Modifier.weight(1f))
-        androidx.compose.material3.OutlinedButton(
-            onClick = {
-                TimePickerDialog(context, { _, h, m -> onPick(h * 60 + m) }, minutes / 60, minutes % 60, false).show()
-            },
-            border = BorderStroke(1.dp, HydroBlue),
-            shape = RoundedCornerShape(12.dp)
-        ) { Text(formatClock(minutes, lang)) }
-    }
-}
-
-@Composable
-fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك الطبي اليومي") {
+fun ResultCard(result: HydrationResult, cup: Int, unit: VolumeUnit, title: String = "📋 هدفك الطبي اليومي") {
     val lang = LocalLanguage.current
     Card(
         shape = RoundedCornerShape(22.dp),
@@ -583,16 +389,15 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            val ml = tr("مل", "ml")
             Text(
-                tr("${formatMl(result.targetMl)} مل يومياً", "${formatMl(result.targetMl)} ml per day"),
+                tr("${formatVolume(result.targetMl, unit, lang)} يومياً", "${formatVolume(result.targetMl, unit, lang)} per day"),
                 style = MaterialTheme.typography.headlineMedium,
                 color = HydroBlue
             )
             Text(
                 tr(
-                    "= ${result.cupsNeeded} كأس × $cup مل • تنبيه كل ${formatDuration(result.intervalMinutes, lang)}",
-                    "= ${result.cupsNeeded} cups × $cup ml • reminder every ${formatDuration(result.intervalMinutes, lang)}"
+                    "= ${result.cupsNeeded} كأس × ${formatVolume(cup, unit, lang)} • تنبيه كل ${formatDuration(result.intervalMinutes, lang)}",
+                    "= ${result.cupsNeeded} cups × ${formatVolume(cup, unit, lang)} • reminder every ${formatDuration(result.intervalMinutes, lang)}"
                 ),
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -606,7 +411,7 @@ fun ResultCard(result: HydrationResult, cup: Int, title: String = "📋 هدفك
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (item.ml > 0) "+${formatMl(item.ml)} $ml" else "0 $ml",
+                        if (item.ml > 0) "+${formatVolume(item.ml, unit, lang)}" else formatVolume(0, unit, lang),
                         fontWeight = FontWeight.Bold,
                         color = if (item.ml > 0) HydroBlue else MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -59,7 +59,9 @@ import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.UserProfile
+import com.hydroforce.pro.data.VolumeUnit
 import com.hydroforce.pro.data.formatMl
+import com.hydroforce.pro.data.formatVolume
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -77,10 +79,6 @@ fun DashboardScreen(
     permissions: List<PermItem>,
     onPermissionsChanged: () -> Unit,
     onDrinkNow: () -> Unit,
-    onSettings: () -> Unit,
-    onMeetings: () -> Unit,
-    onStats: () -> Unit,
-    onTips: () -> Unit,
     selectedDrinkType: DrinkType,
     onDrinkTypeSelected: (DrinkType) -> Unit,
     workoutActive: Boolean,
@@ -92,19 +90,30 @@ fun DashboardScreen(
 ) {
     val lang = LocalLanguage.current
     val consumed = logs.sumOf { it.effectiveMl }
+    var showInfo by remember { mutableStateOf(false) }
+
+    if (showInfo) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showInfo = false },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text(tr("حسناً", "OK")) } },
+            title = { Text(tr("تفصيل الهدف الطبي", "Medical goal breakdown")) },
+            text = { ResultCard(result, profile.cupSizeMl, profile.volumeUnit, title = tr("📋 لماذا هذا الهدف؟", "📋 Why this goal?")) }
+        )
+    }
+
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        Header(onSettings)
+        Header(profile, now, workoutActive)
         Column(
             Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Spacer(Modifier.height(0.dp))
             PermissionsHealthCard(permissions, onPermissionsChanged)
-            ProgressCard(consumed, result, logs.size)
+            ProgressCard(consumed, result, logs.size, profile.volumeUnit) { showInfo = true }
             CountdownCard(profile, alarm, now, ringing, consumed >= result.targetMl)
             Card(
                 shape = RoundedCornerShape(22.dp),
@@ -147,46 +156,25 @@ fun DashboardScreen(
                     Text(tr("(توثيق بالكاميرا وإعادة ضبط المؤقت)", "(camera-verified, resets the timer)"), fontSize = 13.sp)
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = onStats,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(18.dp)
-                ) {
-                    Text(tr("📊 الإحصائيات", "📊 Stats"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                }
-                OutlinedButton(
-                    onClick = onMeetings,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(18.dp)
-                ) {
-                    Text(tr("📅 الاجتماعات", "📅 Meetings"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-            OutlinedButton(
-                onClick = onTips,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text(tr("💡 نصائح صحة الترطيب", "💡 Hydration health tips"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            }
             WorkoutCard(active = workoutActive, onStart = onStartWorkout, onEnd = onEndWorkout)
             UrineColorGuide(todayBioCount = todayBioCount, onGrade = onBioGrade, onUndo = onUndoBio)
             TodayLogCard(logs)
-            ResultCard(result, profile.cupSizeMl, title = tr("📋 لماذا هذا الهدف الطبي؟", "📋 Why this medical goal?"))
             Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun Header(onSettings: () -> Unit) {
+private fun Header(profile: UserProfile, now: Long, workoutActive: Boolean) {
+    val (badge, badgeColor) = when {
+        workoutActive -> tr("تمرين 🏋️", "Workout 🏋️") to HydroMint
+        profile.fastingMode == FastingMode.DRY_FAST && ScheduleMath.isFastingDay(now, profile) ->
+            tr("صيام جاف 🌙", "Dry fast 🌙") to Color(0xFF6A5ACD)
+        profile.fastingMode == FastingMode.INTERMITTENT_FAST && ScheduleMath.isFastingDay(now, profile) ->
+            tr("صيام متقطع ⏳", "Intermittent ⏳") to Color(0xFF6A5ACD)
+        ScheduleMath.isWorkTime(now, profile) -> tr("وضع العمل 💼", "Work mode 💼") to Color(0xFF1F7A5C)
+        else -> tr("الوضع العادي 🔔", "Normal 🔔") to HydroWarn
+    }
     Box(
         Modifier
             .fillMaxWidth()
@@ -199,19 +187,26 @@ private fun Header(onSettings: () -> Unit) {
                 Text("VeroSip 💧", color = Color.White, style = MaterialTheme.typography.titleLarge)
                 Text(tr("ترطيب طبي ملزم بالتوثيق", "Verified medical hydration"), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
             }
-            TextButton(onClick = onSettings) {
-                Text(tr("⚙️ الإعدادات", "⚙️ Settings"), color = Color.White)
-            }
+            Text(
+                badge,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(badgeColor)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
         }
     }
 }
 
 @Composable
-private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
+private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int, unit: VolumeUnit, onInfo: () -> Unit) {
+    val lang = LocalLanguage.current
     val fraction = (consumed.toFloat() / result.targetMl).coerceIn(0f, 1f)
     val animated by animateFloatAsState(fraction, tween(900), label = "progress")
     val percent = (consumed * 100f / result.targetMl).toInt()
-    val ml = tr("مل", "ml")
     Card(
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -245,20 +240,23 @@ private fun ProgressCard(consumed: Int, result: HydrationResult, cups: Int) {
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(tr("تقدم اليوم", "Today's progress"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(tr("تقدم اليوم", "Today's progress"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onInfo, contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)) { Text("ℹ️", fontSize = 18.sp) }
+                }
                 Text(
-                    "${formatMl(consumed)} / ${formatMl(result.targetMl)} $ml",
+                    "${formatVolume(consumed, unit, lang)} / ${formatVolume(result.targetMl, unit, lang)}",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = HydroBlue
                 )
-                Text(tr("مل مستهلك / الهدف الطبي اليومي", "ml consumed / daily medical goal"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("مستهلك / الهدف الطبي اليومي", "consumed / daily medical goal"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(tr("🥤 الأكواب: $cups من ${result.cupsNeeded}", "🥤 Cups: $cups of ${result.cupsNeeded}"), fontWeight = FontWeight.SemiBold)
                 if (consumed >= result.targetMl) {
                     Text(tr("🎉 حققت هدفك الطبي اليوم!", "🎉 You met today's goal!"), color = HydroMint, fontWeight = FontWeight.Bold)
                 } else {
                     Text(
-                        tr("متبقٍ ${formatMl(result.targetMl - consumed)} مل", "${formatMl(result.targetMl - consumed)} ml remaining"),
+                        tr("متبقٍ ${formatVolume(result.targetMl - consumed, unit, lang)}", "${formatVolume(result.targetMl - consumed, unit, lang)} remaining"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

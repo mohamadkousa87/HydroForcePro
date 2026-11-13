@@ -26,11 +26,13 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.hydroforce.pro.MainActivity
 import com.hydroforce.pro.data.AppDatabase
+import com.hydroforce.pro.data.FastingMode
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
-import com.hydroforce.pro.data.formatMl
+import com.hydroforce.pro.data.VolumeUnit
+import com.hydroforce.pro.data.formatVolume
 import com.hydroforce.pro.ui.tr
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,20 +49,31 @@ private data class WidgetData(
     val percent: Int,
     val nextAlarmAt: Long,
     val onboarded: Boolean,
-    val lang: Language
+    val lang: Language,
+    val unit: VolumeUnit,
+    val mode: String
 )
 
 private suspend fun loadWidgetData(context: Context): WidgetData {
     val repo = SettingsRepository(context)
     val lang = repo.currentLanguage()
-    if (!repo.isOnboarded()) return WidgetData(0, 0, 0, 0L, false, lang)
+    if (!repo.isOnboarded()) return WidgetData(0, 0, 0, 0L, false, lang, VolumeUnit.ML, "")
     val profile = repo.currentProfile()
+    val now = System.currentTimeMillis()
+    val cycleStart = ScheduleMath.currentHydrationCycleStart(now, profile.wakeMinutes)
+    val dao = AppDatabase.get(context).intakeDao()
     val result = HydrationCalculator.calculate(profile)
-    val consumed = AppDatabase.get(context).intakeDao()
-        .totalSince(ScheduleMath.currentHydrationCycleStart(System.currentTimeMillis(), profile.wakeMinutes))
+    val base = result.targetMl + dao.bioBonusSince(cycleStart) + repo.workoutBonusFor(cycleStart)
+    val consumed = dao.totalSince(cycleStart)
     val alarm = repo.currentAlarmState()
-    val percent = if (result.targetMl > 0) (consumed * 100 / result.targetMl).coerceIn(0, 100) else 0
-    return WidgetData(consumed, result.targetMl, percent, alarm.nextAlarmAt, true, lang)
+    val percent = if (base > 0) (consumed * 100 / base).coerceIn(0, 100) else 0
+    val mode = when {
+        repo.currentWorkoutEnd() > now -> tr(lang, "تمرين", "Workout")
+        profile.fastingMode != FastingMode.NONE && ScheduleMath.isFastingDay(now, profile) -> tr(lang, "صيام", "Fasting")
+        ScheduleMath.isWorkTime(now, profile) -> tr(lang, "عمل", "Work")
+        else -> tr(lang, "عادي", "Normal")
+    }
+    return WidgetData(consumed, base, percent, alarm.nextAlarmAt, true, lang, profile.volumeUnit, mode)
 }
 
 private fun openApp(context: Context) = actionStartActivity(
@@ -95,7 +108,7 @@ class TodayProgressWidget : GlanceAppWidget() {
                     style = TextStyle(color = ColorProvider(WHITE), fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    if (d.onboarded) tr(d.lang, "${formatMl(d.consumed)} / ${formatMl(d.target)} مل", "${formatMl(d.consumed)} / ${formatMl(d.target)} ml")
+                    if (d.onboarded) "${formatVolume(d.consumed, d.unit, d.lang)} / ${formatVolume(d.target, d.unit, d.lang)}"
                     else tr(d.lang, "افتح التطبيق للإعداد", "Open the app to set up"),
                     style = TextStyle(color = ColorProvider(WHITE), fontSize = 13.sp)
                 )
@@ -135,7 +148,7 @@ class NextReminderWidget : GlanceAppWidget() {
                     style = TextStyle(color = ColorProvider(WHITE), fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    tr(d.lang, "شرب الماء 💧", "Drink water 💧"),
+                    if (d.onboarded) d.mode else tr(d.lang, "شرب الماء 💧", "Drink water 💧"),
                     style = TextStyle(color = ColorProvider(SKY), fontSize = 12.sp)
                 )
             }
