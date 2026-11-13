@@ -85,6 +85,13 @@ fun StatsScreen(
             StatTile(tr("أيام الهدف", "Goal days"), "${stats.daysGoalMet} / ${stats.days.size}", Modifier.weight(1f))
         }
 
+        // Bio-check tiles
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val avgGrade = if (stats.avgUrineGrade > 0) String.format(Locale.US, "%.1f", stats.avgUrineGrade) else "—"
+            StatTile(tr("متوسط لون البول", "Avg urine grade"), avgGrade, Modifier.weight(1f))
+            StatTile(tr("🚽 مرات الحمام", "🚽 Bathroom visits"), "${stats.bathroomCount}", Modifier.weight(1f))
+        }
+
         // Weekly chart
         Card(
             shape = RoundedCornerShape(22.dp),

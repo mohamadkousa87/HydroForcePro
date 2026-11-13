@@ -54,6 +54,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hydroforce.pro.data.ActivityLevel
 import com.hydroforce.pro.data.CUP_SIZES
+import com.hydroforce.pro.data.FastingMode
+import com.hydroforce.pro.data.FastingRecurrence
 import com.hydroforce.pro.data.Gender
 import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
@@ -95,6 +97,12 @@ fun ProfileScreen(
     var breakfastOn by rememberSaveable { mutableStateOf(initial.breakfastOn) }
     var lunchOn by rememberSaveable { mutableStateOf(initial.lunchOn) }
     var dinnerOn by rememberSaveable { mutableStateOf(initial.dinnerOn) }
+    var fastingMode by rememberSaveable { mutableStateOf(initial.fastingMode) }
+    var fastingRecurrence by rememberSaveable { mutableStateOf(initial.fastingRecurrence) }
+    var fastStart by rememberSaveable { mutableIntStateOf(initial.fastStartMinutes) }
+    var fastEnd by rememberSaveable { mutableIntStateOf(initial.fastEndMinutes) }
+    var suhoorReminder by rememberSaveable { mutableStateOf(initial.suhoorReminder) }
+    var dailyTipsEnabled by rememberSaveable { mutableStateOf(initial.dailyTipsEnabled) }
 
     val age = ageText.toIntOrNull()
     val weight = weightText.replace(',', '.').toFloatOrNull()
@@ -125,7 +133,13 @@ fun ProfileScreen(
         dinnerMinutes = dinner,
         breakfastOn = breakfastOn,
         lunchOn = lunchOn,
-        dinnerOn = dinnerOn
+        dinnerOn = dinnerOn,
+        fastingMode = fastingMode,
+        fastingRecurrence = fastingRecurrence,
+        fastStartMinutes = fastStart,
+        fastEndMinutes = fastEnd,
+        suhoorReminder = suhoorReminder,
+        dailyTipsEnabled = dailyTipsEnabled
     )
     val lang = LocalLanguage.current
     val result = HydrationCalculator.calculate(draft, lang)
@@ -278,6 +292,59 @@ fun ProfileScreen(
                 MealRow(tr("🍳 الفطور", "🍳 Breakfast"), breakfastOn, breakfast, { breakfastOn = it }) { breakfast = it }
                 MealRow(tr("🍚 الغداء", "🍚 Lunch"), lunchOn, lunch, { lunchOn = it }) { lunch = it }
                 MealRow(tr("🍲 العشاء", "🍲 Dinner"), dinnerOn, dinner, { dinnerOn = it }) { dinner = it }
+            }
+        }
+
+        Section(tr("🌙 محرك الصيام", "🌙 Fasting engine")) {
+            Text(tr("النمط", "Mode"), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FastingMode.entries.forEach {
+                    FilterChip(selected = fastingMode == it, onClick = { fastingMode = it }, label = { Text(it.label(lang)) })
+                }
+            }
+            if (fastingMode != FastingMode.NONE) {
+                Text(tr("التكرار", "Recurrence"), style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FastingRecurrence.entries.forEach {
+                        FilterChip(selected = fastingRecurrence == it, onClick = { fastingRecurrence = it }, label = { Text(it.label(lang)) })
+                    }
+                }
+                TimeRow(tr("🌅 بداية الصيام (الإمساك)", "🌅 Fast start (imsak)"), fastStart) { fastStart = it }
+                TimeRow(tr("🌇 نهاية الصيام (الإفطار)", "🌇 Fast end (iftar)"), fastEnd) { fastEnd = it }
+                if (fastingMode == FastingMode.DRY_FAST) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(tr("تنبيه السحور", "Suhoor reminder"), fontWeight = FontWeight.SemiBold)
+                            Text(
+                                tr("تذكير بالشرب قبل الإمساك بـ 30 دقيقة", "A drink nudge 30 min before imsak"),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = suhoorReminder, onCheckedChange = { suhoorReminder = it })
+                    }
+                    Text(
+                        tr("أثناء النهار تتجمّد التنبيهات وتُدفع للإفطار، ثم توزيع ليلي هادئ.", "Daytime reminders freeze to iftar, then a calm night distribution."),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        tr("الصيام المتقطع يضيف +10% للهدف ويتجاهل توقف الوجبات ضمن نافذة الصيام.", "Intermittent fasting adds +10% to the goal and ignores meal pauses inside the fasting window."),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Section(tr("💡 إشعار المعلومة الطبية اليومية", "💡 Daily medical tip")) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(tr("نصيحة ترطيب يومية", "A daily hydration tip"), fontWeight = FontWeight.SemiBold)
+                    Text(
+                        tr("إشعار هادئ مرة واحدة بعد ساعة من الاستيقاظ", "One quiet notification an hour after wake-up"),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = dailyTipsEnabled, onCheckedChange = { dailyTipsEnabled = it })
             }
         }
 

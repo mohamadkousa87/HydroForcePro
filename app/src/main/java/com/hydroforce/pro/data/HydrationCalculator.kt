@@ -30,7 +30,14 @@ object HydrationCalculator {
         return if (diff > 0) diff else diff + 24 * 60
     }
 
-    fun calculate(p: UserProfile, lang: Language = Language.AR): HydrationResult {
+    /** Minimum reminder spacing: 45 min during the dry-fast night (iftar→imsak) so the goal fits; else 60. */
+    fun effectiveMinInterval(p: UserProfile, nowMillis: Long): Int =
+        if (p.fastingMode == FastingMode.DRY_FAST &&
+            ScheduleMath.isFastingDay(nowMillis, p) &&
+            !ScheduleMath.inFastWindow(nowMillis, p)
+        ) 45 else MIN_INTERVAL_MINUTES
+
+    fun calculate(p: UserProfile, lang: Language = Language.AR, nowMillis: Long? = null): HydrationResult {
         val en = lang == Language.EN
         val items = mutableListOf<BreakdownItem>()
         val factor = mlPerKg(p.age)
@@ -79,11 +86,21 @@ object HydrationCalculator {
             p.activity.description(lang),
             p.activity.bonusMl
         )
+        // Intermittent fasting: +10% to compensate for the fluids normally taken with food.
+        if (p.fastingMode == FastingMode.INTERMITTENT_FAST) {
+            val bonus = (items.sumOf { it.ml } * 0.10).roundToInt()
+            items += BreakdownItem(
+                if (en) "Intermittent fasting +10%" else "صيام متقطع +10%",
+                if (en) "Compensates for fluids usually taken with meals" else "تعويض سوائل الطعام الغائبة أثناء الصيام",
+                bonus
+            )
+        }
         val target = items.sumOf { it.ml }
         val cups = ceil(target.toDouble() / p.cupSizeMl).toInt().coerceAtLeast(1)
         val awake = awakeMinutes(p.wakeMinutes, p.sleepMinutes)
-        // Never remind more often than MIN_INTERVAL_MINUTES (gentler on the digestive system).
-        val interval = (awake / cups).coerceAtLeast(MIN_INTERVAL_MINUTES)
+        // Never remind more often than the effective minimum (60, or 45 during the dry-fast night).
+        val minInterval = if (nowMillis != null) effectiveMinInterval(p, nowMillis) else MIN_INTERVAL_MINUTES
+        val interval = (awake / cups).coerceAtLeast(minInterval)
         return HydrationResult(target, cups, interval, awake, items)
     }
 

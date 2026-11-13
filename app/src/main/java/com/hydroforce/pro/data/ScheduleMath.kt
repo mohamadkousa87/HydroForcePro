@@ -1,5 +1,6 @@
 package com.hydroforce.pro.data
 
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -91,9 +92,48 @@ object ScheduleMath {
         return null
     }
 
+    /** The next epoch-ms at which the clock shows [minuteOfDay], at or after [now]. */
+    fun nextTimeAt(now: Long, minuteOfDay: Int, zone: ZoneId = ZoneId.systemDefault()): Long {
+        val m = ((minuteOfDay % 1440) + 1440) % 1440
+        val date = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val todayAt = date.atTime(LocalTime.of(m / 60, m % 60)).atZone(zone).toInstant().toEpochMilli()
+        return if (todayAt >= now) todayAt
+        else date.plusDays(1).atTime(LocalTime.of(m / 60, m % 60)).atZone(zone).toInstant().toEpochMilli()
+    }
+
     fun minuteOfDay(t: Long, zone: ZoneId = ZoneId.systemDefault()): Int {
         val time = Instant.ofEpochMilli(t).atZone(zone).toLocalTime()
         return time.hour * 60 + time.minute
+    }
+
+    /** Whether a fast is active on the day of [t], per the chosen recurrence. */
+    fun isFastingDay(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean {
+        if (p.fastingMode == FastingMode.NONE) return false
+        return when (p.fastingRecurrence) {
+            FastingRecurrence.DAILY, FastingRecurrence.TODAY_ONLY -> true
+            FastingRecurrence.MON_THU -> {
+                val dow = Instant.ofEpochMilli(t).atZone(zone).dayOfWeek
+                dow == DayOfWeek.MONDAY || dow == DayOfWeek.THURSDAY
+            }
+        }
+    }
+
+    /** True when [t]'s time-of-day is inside the fast window [fastStart, fastEnd] (handles overnight). */
+    fun inFastWindow(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean {
+        val m = minuteOfDay(t, zone)
+        val s = p.fastStartMinutes
+        val e = p.fastEndMinutes
+        return if (s <= e) m in s until e else m >= s || m < e
+    }
+
+    /** Absolute epoch-ms of the fast end (iftar) for the fast window covering [t]. */
+    fun fastEndFor(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Long {
+        val s = p.fastStartMinutes
+        val e = p.fastEndMinutes
+        val m = minuteOfDay(t, zone)
+        val date = Instant.ofEpochMilli(t).atZone(zone).toLocalDate()
+        val endDate = if (s <= e) date else if (m >= s) date.plusDays(1) else date
+        return endDate.atTime(LocalTime.of(e / 60, e % 60)).atZone(zone).toInstant().toEpochMilli()
     }
 
     fun isWorkTime(t: Long, p: UserProfile, zone: ZoneId = ZoneId.systemDefault()): Boolean {

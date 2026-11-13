@@ -12,6 +12,8 @@ class HydroApp : Application() {
         const val CHANNEL_MISSED = "hydro_missed"
         /** Dismissible mirror of the ringing alarm; ongoing FGS notifications aren't relayed to watches. */
         const val CHANNEL_WATCH = "hydro_watch"
+        /** Quiet once-a-day medical tip. */
+        const val CHANNEL_DAILY_TIPS = "hydro_daily_tips"
     }
 
     override fun onCreate() {
@@ -47,6 +49,14 @@ class HydroApp : Application() {
             enableVibration(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        nm.createNotificationChannels(listOf(alarm, missed, watch))
+        val dailyTips = NotificationChannel(
+            CHANNEL_DAILY_TIPS,
+            "المعلومة الطبية اليومية",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "نصيحة ترطيب واحدة يومياً"
+            enableVibration(false)
+        }
+        nm.createNotificationChannels(listOf(alarm, missed, watch, dailyTips))
     }
 }

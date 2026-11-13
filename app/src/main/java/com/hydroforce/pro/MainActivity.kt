@@ -36,6 +36,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hydroforce.pro.camera.CameraVerificationScreen
+import com.hydroforce.pro.data.FastingMode
+import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.formatMl
 import com.hydroforce.pro.ui.DashboardScreen
 import com.hydroforce.pro.ui.HydroDeep
@@ -76,6 +78,7 @@ private object Routes {
     const val MEETINGS = "meetings"
     const val STATS = "stats"
     const val TIPS = "tips"
+    const val WORKOUT_CAMERA = "workout_camera"
 }
 
 @Composable
@@ -120,6 +123,8 @@ private fun HydroNavHost(vm: MainViewModel) {
             key(permRefresh) {
                 val permissions = rememberPermissionStatus(onResume = { vm.ensureScheduledAsync() })
                 val drinkType by vm.pendingDrinkType.collectAsStateWithLifecycle()
+                val workoutActive by vm.workoutActive.collectAsStateWithLifecycle()
+                val bioCount by vm.todayBioCount.collectAsStateWithLifecycle()
                 DashboardScreen(
                     profile = profile,
                     result = result,
@@ -135,7 +140,60 @@ private fun HydroNavHost(vm: MainViewModel) {
                     onStats = { nav.navigate(Routes.STATS) },
                     onTips = { nav.navigate(Routes.TIPS) },
                     selectedDrinkType = drinkType,
-                    onDrinkTypeSelected = { vm.setDrinkType(it) }
+                    onDrinkTypeSelected = { vm.setDrinkType(it) },
+                    workoutActive = workoutActive,
+                    onStartWorkout = { duration ->
+                        val nowT = System.currentTimeMillis()
+                        val dryFast = profile.fastingMode == FastingMode.DRY_FAST &&
+                            ScheduleMath.isFastingDay(nowT, profile) && ScheduleMath.inFastWindow(nowT, profile)
+                        if (dryFast) {
+                            vm.startWorkout(duration) {
+                                Toast.makeText(context, tr(lang, "بدأ التمرين — أُضيف +500 مل بعد الإفطار", "Workout started — +500 ml added after iftar"), Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            vm.setPendingWorkout(duration)
+                            nav.navigate(Routes.WORKOUT_CAMERA)
+                        }
+                    },
+                    onEndWorkout = { vm.endWorkout() },
+                    todayBioCount = bioCount,
+                    onBioGrade = { grade ->
+                        vm.applyBioCheck(grade) { o ->
+                            when {
+                                o.openCamera -> {
+                                    Toast.makeText(context, tr(lang, "💧 جفاف شديد — اشرب كوب ماء الآن", "💧 Severe dehydration — drink a cup now"), Toast.LENGTH_LONG).show()
+                                    nav.navigate(Routes.CAMERA)
+                                }
+                                o.flushWarning -> Toast.makeText(context, tr(lang, "طرد سريع للماء! جرّب 200–250 مل على دفعات", "Rapid flush! Try 200–250 ml in smaller sips"), Toast.LENGTH_LONG).show()
+                                o.addedMl > 0 -> Toast.makeText(context, tr(lang, "أضفنا ${o.addedMl} مل لهدف اليوم 💧", "Added ${o.addedMl} ml to today's goal 💧"), Toast.LENGTH_SHORT).show()
+                                else -> {}
+                            }
+                        }
+                    },
+                    onUndoBio = { vm.undoBioCheck() }
+                )
+            }
+        }
+        composable(Routes.WORKOUT_CAMERA) {
+            val duration by vm.pendingWorkoutDuration.collectAsStateWithLifecycle()
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(HydroDeep, Color(0xFF0A2540))))
+                    .statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                TextButton(onClick = { nav.popBackStack() }) { Text(tr("→ إلغاء", "→ Cancel"), color = Color.White) }
+                CameraVerificationScreen(
+                    title = tr("وثّق وجود مطارة الماء معك 🏋️", "Verify your water bottle is with you 🏋️"),
+                    defaultAmountMl = profile.cupSizeMl,
+                    onVerified = { _, _ ->
+                        vm.startWorkout(duration) {
+                            Toast.makeText(context, tr(lang, "بدأ التمرين 🏋️ — رشفات كل 15 دقيقة", "Workout started 🏋️ — sips every 15 min"), Toast.LENGTH_LONG).show()
+                            nav.popBackStack()
+                        }
+                    }
                 )
             }
         }

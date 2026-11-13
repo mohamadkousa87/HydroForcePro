@@ -48,6 +48,17 @@ class SettingsRepository(context: Context) {
         val BREAKFAST_ON = booleanPreferencesKey("breakfast_on")
         val LUNCH_ON = booleanPreferencesKey("lunch_on")
         val DINNER_ON = booleanPreferencesKey("dinner_on")
+        val FASTING_MODE = stringPreferencesKey("fasting_mode")
+        val FASTING_RECURRENCE = stringPreferencesKey("fasting_recurrence")
+        val FAST_START = intPreferencesKey("fast_start")
+        val FAST_END = intPreferencesKey("fast_end")
+        val SUHOOR = booleanPreferencesKey("suhoor_reminder")
+        val DAILY_TIPS = booleanPreferencesKey("daily_tips_enabled")
+        // Transient cycle state (not part of the medical profile)
+        val WORKOUT_END = longPreferencesKey("workout_end")
+        val WORKOUT_BONUS_ML = intPreferencesKey("workout_bonus_ml")
+        val WORKOUT_BONUS_CYCLE = longPreferencesKey("workout_bonus_cycle")
+        val FASTING_ACTIVATED_CYCLE = longPreferencesKey("fasting_activated_cycle")
     }
 
     val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
@@ -131,7 +142,44 @@ class SettingsRepository(context: Context) {
             it[Keys.BREAKFAST_ON] = p.breakfastOn
             it[Keys.LUNCH_ON] = p.lunchOn
             it[Keys.DINNER_ON] = p.dinnerOn
+            it[Keys.FASTING_MODE] = p.fastingMode.name
+            it[Keys.FASTING_RECURRENCE] = p.fastingRecurrence.name
+            it[Keys.FAST_START] = p.fastStartMinutes
+            it[Keys.FAST_END] = p.fastEndMinutes
+            it[Keys.SUHOOR] = p.suhoorReminder
+            it[Keys.DAILY_TIPS] = p.dailyTipsEnabled
         }
+    }
+
+    suspend fun setFastingMode(mode: FastingMode) {
+        store.edit { it[Keys.FASTING_MODE] = mode.name }
+    }
+
+    // ----- Transient cycle state -----
+    val workoutEnd: Flow<Long> = store.data.map { it[Keys.WORKOUT_END] ?: 0L }
+    suspend fun currentWorkoutEnd(): Long = workoutEnd.first()
+    suspend fun setWorkoutEnd(at: Long) { store.edit { it[Keys.WORKOUT_END] = at } }
+
+    /** (bonusMl, cycleStart) for the workout sweat bonus, as a stream for the UI. */
+    val workoutBonusRaw: Flow<Pair<Int, Long>> = store.data.map {
+        (it[Keys.WORKOUT_BONUS_ML] ?: 0) to (it[Keys.WORKOUT_BONUS_CYCLE] ?: 0L)
+    }
+
+    /** Workout sweat bonus, valid only for the cycle it was granted in. */
+    suspend fun workoutBonusFor(cycleStart: Long): Int {
+        val prefs = store.data.first()
+        return if ((prefs[Keys.WORKOUT_BONUS_CYCLE] ?: 0L) == cycleStart) prefs[Keys.WORKOUT_BONUS_ML] ?: 0 else 0
+    }
+    suspend fun setWorkoutBonus(ml: Int, cycleStart: Long) {
+        store.edit {
+            it[Keys.WORKOUT_BONUS_ML] = ml
+            it[Keys.WORKOUT_BONUS_CYCLE] = cycleStart
+        }
+    }
+
+    suspend fun fastingActivatedCycle(): Long = store.data.first()[Keys.FASTING_ACTIVATED_CYCLE] ?: 0L
+    suspend fun setFastingActivatedCycle(cycleStart: Long) {
+        store.edit { it[Keys.FASTING_ACTIVATED_CYCLE] = cycleStart }
     }
 
     suspend fun setNextAlarm(at: Long) {
@@ -168,7 +216,13 @@ class SettingsRepository(context: Context) {
             dinnerMinutes = this[Keys.DINNER] ?: d.dinnerMinutes,
             breakfastOn = this[Keys.BREAKFAST_ON] ?: d.breakfastOn,
             lunchOn = this[Keys.LUNCH_ON] ?: d.lunchOn,
-            dinnerOn = this[Keys.DINNER_ON] ?: d.dinnerOn
+            dinnerOn = this[Keys.DINNER_ON] ?: d.dinnerOn,
+            fastingMode = this[Keys.FASTING_MODE]?.let { runCatching { FastingMode.valueOf(it) }.getOrNull() } ?: d.fastingMode,
+            fastingRecurrence = this[Keys.FASTING_RECURRENCE]?.let { runCatching { FastingRecurrence.valueOf(it) }.getOrNull() } ?: d.fastingRecurrence,
+            fastStartMinutes = this[Keys.FAST_START] ?: d.fastStartMinutes,
+            fastEndMinutes = this[Keys.FAST_END] ?: d.fastEndMinutes,
+            suhoorReminder = this[Keys.SUHOOR] ?: d.suhoorReminder,
+            dailyTipsEnabled = this[Keys.DAILY_TIPS] ?: d.dailyTipsEnabled
         )
     }
 }

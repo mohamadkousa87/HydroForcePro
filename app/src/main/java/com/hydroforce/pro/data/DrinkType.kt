@@ -10,16 +10,18 @@ enum class DrinkType(
     val label: String,
     val labelEn: String,
     val emoji: String,
-    val hydrationFactor: Float
+    val hydrationFactor: Float,
+    /** True for caloric drinks that break an intermittent fast. */
+    val breaksFast: Boolean = false
 ) {
     WATER("ماء", "Water", "💧", 1.0f),
-    COFFEE_ESPRESSO("قهوة إسبريسو", "Espresso", "☕", 0.85f),
+    COFFEE_ESPRESSO("قهوة سوداء", "Black coffee", "☕", 0.85f),
     TEA("شاي", "Tea", "🍵", 0.90f),
     HERBAL("أعشاب", "Herbal", "🌿", 1.0f),
-    COCKTAIL("كوكتيل", "Cocktail", "🍹", 0.90f),
-    LABAN("لبن", "Laban", "🥛", 1.0f),
-    MILK("حليب", "Milk", "🥛", 1.0f),
-    FRESH_JUICE("عصير فريش", "Fresh juice", "🧃", 0.95f);
+    COCKTAIL("كوكتيل", "Cocktail", "🍹", 0.90f, breaksFast = true),
+    LABAN("لبن", "Laban", "🥛", 1.0f, breaksFast = true),
+    MILK("حليب", "Milk", "🥛", 1.0f, breaksFast = true),
+    FRESH_JUICE("عصير فريش", "Fresh juice", "🧃", 0.95f, breaksFast = true);
 
     fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
 

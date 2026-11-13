@@ -11,6 +11,8 @@ import com.hydroforce.pro.data.HydrationCalculator
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.CsvExporter
 import com.hydroforce.pro.data.DrinkType
+import com.hydroforce.pro.data.FastingMode
+import com.hydroforce.pro.data.FastingRecurrence
 import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.Meeting
 import com.hydroforce.pro.data.ScheduleMath
@@ -47,10 +49,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val alarmState: StateFlow<AlarmState> = repo.alarmState
         .stateIn(viewModelScope, SharingStarted.Eagerly, AlarmState())
 
-    val result: StateFlow<HydrationResult> = combine(profile, repo.language) { p, lang ->
-        HydrationCalculator.calculate(p, lang)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, HydrationCalculator.calculate(UserProfile()))
-
     val now: StateFlow<Long> = flow {
         while (true) {
             emit(System.currentTimeMillis())
@@ -66,6 +64,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val todayLogs: StateFlow<List<IntakeLog>> = dayStart
         .flatMapLatest { dao.logsSince(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Bio-check rescue water added this cycle. */
+    private val bioBonus: StateFlow<Int> = dayStart
+        .flatMapLatest { cs -> dao.bioChecksSince(cs).map { list -> list.sumOf { it.addedBonusMl } } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** Workout sweat bonus, valid only in the cycle it was granted. */
+    private val workoutBonus: StateFlow<Int> = combine(dayStart, repo.workoutBonusRaw) { cs, raw ->
+        if (raw.second == cs) raw.first else 0
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** Number of bio-checks (bathroom visits) logged this cycle. */
+    val todayBioCount: StateFlow<Int> = dayStart
+        .flatMapLatest { dao.bioCountSince(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** True while a workout session is in progress. */
+    val workoutActive: StateFlow<Boolean> = combine(repo.workoutEnd, now) { end, t -> end > t }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Effective daily goal = base medical target + bio rescue + workout sweat bonus. */
+    val result: StateFlow<HydrationResult> =
+        combine(profile, repo.language, bioBonus, workoutBonus) { p, lang, bio, wo ->
+            val r = HydrationCalculator.calculate(p, lang)
+            r.copy(targetMl = r.targetMl + bio + wo)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, HydrationCalculator.calculate(UserProfile()))
 
     val ringing: StateFlow<Boolean> = AlarmService.ringing
 
@@ -86,8 +110,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    val stats: StateFlow<StatsData?> = combine(dao.allLogsFlow(), profile) { logs, p ->
-        StatsCalculator.compute(logs, p, System.currentTimeMillis())
+    val stats: StateFlow<StatsData?> = combine(dao.allLogsFlow(), dao.allBioChecksFlow(), profile) { logs, bio, p ->
+        StatsCalculator.compute(logs, p, System.currentTimeMillis(), bioLogs = bio)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** Writes the full intake log to a CSV file and returns it for sharing. */
@@ -117,10 +141,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveProfile(p: UserProfile, onSaved: () -> Unit) {
         viewModelScope.launch {
             repo.saveProfile(p)
+            // Stamp the activation cycle for a one-day fast so it can auto-expire later.
+            if (p.fastingMode != FastingMode.NONE && p.fastingRecurrence == FastingRecurrence.TODAY_ONLY) {
+                repo.setFastingActivatedCycle(ScheduleMath.currentHydrationCycleStart(System.currentTimeMillis(), p.wakeMinutes))
+            }
             // Preserve the running countdown instead of resetting it on every save.
             HydrationManager.rescheduleKeepingCountdown(getApplication())
+            HydrationManager.scheduleNextDailyTip(getApplication())
             onSaved()
         }
+    }
+
+    // ----- Workout sip mode -----
+    fun startWorkout(durationMinutes: Int, onDone: () -> Unit) {
+        viewModelScope.launch {
+            val p = repo.currentProfile()
+            val now = System.currentTimeMillis()
+            val dryFast = p.fastingMode == FastingMode.DRY_FAST &&
+                ScheduleMath.isFastingDay(now, p) && ScheduleMath.inFastWindow(now, p)
+            HydrationManager.startWorkout(getApplication(), durationMinutes, dryFast)
+            onDone()
+        }
+    }
+
+    fun endWorkout() {
+        viewModelScope.launch { HydrationManager.endWorkout(getApplication()) }
+    }
+
+    // ----- Interactive bio-check -----
+    fun applyBioCheck(grade: Int, onResult: (HydrationManager.BioOutcome) -> Unit) {
+        viewModelScope.launch {
+            val outcome = HydrationManager.applyBioCheck(getApplication(), grade)
+            onResult(outcome)
+        }
+    }
+
+    fun undoBioCheck() {
+        viewModelScope.launch { HydrationManager.undoLastBioCheck(getApplication()) }
     }
 
     private val _pendingDrinkType = kotlinx.coroutines.flow.MutableStateFlow(DrinkType.WATER)
@@ -128,6 +185,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setDrinkType(type: DrinkType) {
         _pendingDrinkType.value = type
+    }
+
+    private val _pendingWorkoutDuration = kotlinx.coroutines.flow.MutableStateFlow(60)
+    val pendingWorkoutDuration: StateFlow<Int> = _pendingWorkoutDuration
+
+    fun setPendingWorkout(minutes: Int) {
+        _pendingWorkoutDuration.value = minutes
     }
 
     /**

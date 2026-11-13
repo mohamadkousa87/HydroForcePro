@@ -23,6 +23,22 @@ enum class ActivityLevel(
     fun description(lang: Language): String = if (lang == Language.EN) descriptionEn else description
 }
 
+enum class FastingMode(val label: String, val labelEn: String) {
+    NONE("بدون", "Off"),
+    DRY_FAST("صيام جاف", "Dry fast"),
+    INTERMITTENT_FAST("صيام متقطع", "Intermittent");
+
+    fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
+}
+
+enum class FastingRecurrence(val label: String, val labelEn: String) {
+    TODAY_ONLY("اليوم فقط", "Today only"),
+    DAILY("يومياً", "Daily"),
+    MON_THU("الإثنين والخميس", "Mon & Thu");
+
+    fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
+}
+
 /** Times are stored as minutes-of-day (0..1439). */
 data class UserProfile(
     val gender: Gender = Gender.MALE,
@@ -46,7 +62,15 @@ data class UserProfile(
     val dinnerMinutes: Int = 20 * 60,
     val breakfastOn: Boolean = true,
     val lunchOn: Boolean = true,
-    val dinnerOn: Boolean = true
+    val dinnerOn: Boolean = true,
+    // Fasting engine
+    val fastingMode: FastingMode = FastingMode.NONE,
+    val fastingRecurrence: FastingRecurrence = FastingRecurrence.TODAY_ONLY,
+    val fastStartMinutes: Int = 4 * 60 + 45,   // Imsak / fast start
+    val fastEndMinutes: Int = 18 * 60 + 30,    // Iftar / fast end
+    val suhoorReminder: Boolean = true,
+    // Daily medical tip notification
+    val dailyTipsEnabled: Boolean = true
 )
 
 /** Enabled meal times (minutes-of-day) to pause reminders around; empty when the feature is off. */

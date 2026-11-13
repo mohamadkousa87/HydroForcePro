@@ -16,7 +16,9 @@ data class StatsData(
     val streak: Int,
     val totalLoggedMl: Int,
     val avgPerDayMl: Int,
-    val daysGoalMet: Int
+    val daysGoalMet: Int,
+    val avgUrineGrade: Double,
+    val bathroomCount: Int
 )
 
 object StatsCalculator {
@@ -28,7 +30,8 @@ object StatsCalculator {
         profile: UserProfile,
         now: Long,
         days: Int = 7,
-        zone: ZoneId = ZoneId.systemDefault()
+        zone: ZoneId = ZoneId.systemDefault(),
+        bioLogs: List<BioCheckLog> = emptyList()
     ): StatsData {
         val target = HydrationCalculator.calculate(profile).targetMl.coerceAtLeast(1)
         val todayStart = ScheduleMath.calendarDayStart(now, zone)
@@ -57,13 +60,19 @@ object StatsCalculator {
         val avg = dayStats.sumOf { it.totalMl } / days
         val metCount = dayStats.count { it.goalMet }
 
+        val windowStart = todayStart - (days - 1) * DAY_MS
+        val windowBio = bioLogs.filter { it.timestamp >= windowStart && it.timestamp < todayStart + DAY_MS }
+        val avgUrine = if (windowBio.isEmpty()) 0.0 else windowBio.map { it.urineColorGrade }.average()
+
         return StatsData(
             days = dayStats,
             targetMl = target,
             streak = streak,
             totalLoggedMl = totalLogged,
             avgPerDayMl = avg,
-            daysGoalMet = metCount
+            daysGoalMet = metCount,
+            avgUrineGrade = avgUrine,
+            bathroomCount = windowBio.size
         )
     }
 }

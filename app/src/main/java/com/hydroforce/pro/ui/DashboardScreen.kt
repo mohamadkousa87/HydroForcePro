@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.hydroforce.pro.alarm.HydrationManager
 import com.hydroforce.pro.data.AlarmState
 import com.hydroforce.pro.data.DrinkType
+import com.hydroforce.pro.data.FastingMode
 import com.hydroforce.pro.data.HydrationResult
 import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.Language
@@ -80,7 +82,13 @@ fun DashboardScreen(
     onStats: () -> Unit,
     onTips: () -> Unit,
     selectedDrinkType: DrinkType,
-    onDrinkTypeSelected: (DrinkType) -> Unit
+    onDrinkTypeSelected: (DrinkType) -> Unit,
+    workoutActive: Boolean,
+    onStartWorkout: (Int) -> Unit,
+    onEndWorkout: () -> Unit,
+    todayBioCount: Int,
+    onBioGrade: (Int) -> Unit,
+    onUndoBio: () -> Unit
 ) {
     val lang = LocalLanguage.current
     val consumed = logs.sumOf { it.effectiveMl }
@@ -105,7 +113,13 @@ fun DashboardScreen(
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(tr("🥤 ماذا ستشرب؟", "🥤 What are you drinking?"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    DrinkTypePicker(selected = selectedDrinkType, onSelected = onDrinkTypeSelected)
+                    val imFasting = profile.fastingMode == FastingMode.INTERMITTENT_FAST &&
+                        ScheduleMath.isFastingDay(now, profile) && ScheduleMath.inFastWindow(now, profile)
+                    DrinkTypePicker(
+                        selected = selectedDrinkType,
+                        onSelected = onDrinkTypeSelected,
+                        intermittentFastingActive = imFasting
+                    )
                     if (selectedDrinkType.hydrationFactor < 1f) {
                         val pct = (selectedDrinkType.hydrationFactor * 100).toInt()
                         Text(
@@ -162,7 +176,8 @@ fun DashboardScreen(
             ) {
                 Text(tr("💡 نصائح صحة الترطيب", "💡 Hydration health tips"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
-            UrineColorGuide()
+            WorkoutCard(active = workoutActive, onStart = onStartWorkout, onEnd = onEndWorkout)
+            UrineColorGuide(todayBioCount = todayBioCount, onGrade = onBioGrade, onUndo = onUndoBio)
             TodayLogCard(logs)
             ResultCard(result, profile.cupSizeMl, title = tr("📋 لماذا هذا الهدف الطبي؟", "📋 Why this medical goal?"))
             Spacer(Modifier.height(24.dp))
@@ -341,7 +356,53 @@ private val urineShades = listOf(
 )
 
 @Composable
-private fun UrineColorGuide() {
+private fun WorkoutCard(active: Boolean, onStart: (Int) -> Unit, onEnd: () -> Unit) {
+    var duration by remember { mutableIntStateOf(60) }
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(tr("🏋️ وضع التمرين", "🏋️ Workout mode"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            if (active) {
+                Text(
+                    tr("التمرين جارٍ — نبضات رشفة كل 15 دقيقة على ساعتك، و+500 مل تعويض تعرق.", "Workout in progress — sip pulses every 15 min on your watch, +500 ml sweat bonus."),
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = onEnd,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = HydroDanger)
+                ) { Text(tr("⏹️ إنهاء التمرين مبكراً", "⏹️ End workout early")) }
+            } else {
+                Text(
+                    tr("اختر المدة وابدأ — نذكّرك برشفات أثناء التمرين ونضيف 500 مل تعويض تعرق.", "Pick a duration and start — we'll pulse sips and add a 500 ml sweat bonus."),
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(45, 60, 90).forEach { d ->
+                        FilterChip(
+                            selected = duration == d,
+                            onClick = { duration = d },
+                            label = { Text(tr("$d دقيقة", "$d min")) }
+                        )
+                    }
+                }
+                Button(
+                    onClick = { onStart(duration) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = HydroBlue)
+                ) { Text(tr("ابدأ التمرين 🏋️", "Start workout 🏋️"), fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UrineColorGuide(todayBioCount: Int, onGrade: (Int) -> Unit, onUndo: () -> Unit) {
     val lang = LocalLanguage.current
     var selected by remember { mutableIntStateOf(-1) }
     Card(
@@ -350,8 +411,11 @@ private fun UrineColorGuide() {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(tr("🧪 دليل ألوان البول للترطيب", "🧪 Urine hydration color guide"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Text(tr("اضغط على اللون الأقرب لحالتك لمعرفة مستوى ترطيبك", "Tap the closest color to check your hydration level"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("🧪 المؤشر الحيوي للون البول", "🧪 Urine color bio-check"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                Text(tr("🚽 مرات اليوم: $todayBioCount", "🚽 Today: $todayBioCount"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = HydroBlue)
+            }
+            Text(tr("اضغط الدرجة الأقرب لحالتك — نضيف ماء إنقاذ تلقائياً عند الحاجة", "Tap the closest grade — rescue water is added automatically when needed"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 urineShades.forEachIndexed { i, shade ->
                     Box(
@@ -365,15 +429,21 @@ private fun UrineColorGuide() {
                                 if (selected == i) HydroDeep else Color(0x22000000),
                                 RoundedCornerShape(10.dp)
                             )
-                            .clickable { selected = i },
+                            .clickable {
+                                selected = i
+                                onGrade(i + 1)
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Text("${i + 1}", fontWeight = FontWeight.Bold, color = if (i < 5) Color(0xFF6B5B00) else Color.White)
                     }
                 }
             }
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("رطب جيداً 💧", "Well hydrated 💧"), fontSize = 12.sp, color = HydroMint, modifier = Modifier.weight(1f))
+                if (todayBioCount > 0) {
+                    TextButton(onClick = { onUndo(); selected = -1 }) { Text(tr("↩️ تراجع", "↩️ Undo")) }
+                }
                 Text(tr("جفاف ⚠️", "Dehydration ⚠️"), fontSize = 12.sp, color = HydroDanger)
             }
             AnimatedVisibility(visible = selected >= 0) {

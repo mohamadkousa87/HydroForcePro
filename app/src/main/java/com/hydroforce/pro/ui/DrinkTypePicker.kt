@@ -17,7 +17,8 @@ import com.hydroforce.pro.data.DrinkType
 fun DrinkTypePicker(
     selected: DrinkType,
     onSelected: (DrinkType) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    intermittentFastingActive: Boolean = false
 ) {
     Row(
         modifier
@@ -27,10 +28,16 @@ fun DrinkTypePicker(
     ) {
         val lang = LocalLanguage.current
         DrinkType.entries.forEach { type ->
+            val warn = intermittentFastingActive && type.breaksFast
+            val label = if (warn) {
+                "${type.emoji} ${type.label(lang)} " + tr("⚠️ يكسر الصيام", "⚠️ breaks fast")
+            } else {
+                "${type.emoji} ${type.label(lang)}"
+            }
             FilterChip(
                 selected = selected == type,
                 onClick = { onSelected(type) },
-                label = { Text("${type.emoji} ${type.label(lang)}") }
+                label = { Text(label) }
             )
         }
     }
