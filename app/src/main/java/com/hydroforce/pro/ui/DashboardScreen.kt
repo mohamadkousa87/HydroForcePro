@@ -87,7 +87,8 @@ fun DashboardScreen(
     onEndWorkout: () -> Unit,
     todayBioCount: Int,
     onBioGrade: (Int) -> Unit,
-    onUndoBio: () -> Unit
+    onUndoBio: () -> Unit,
+    onDeleteLog: (Long) -> Unit
 ) {
     val lang = LocalLanguage.current
     val consumed = logs.sumOf { it.effectiveMl }
@@ -159,7 +160,7 @@ fun DashboardScreen(
             }
             WorkoutCard(active = workoutActive, onStart = onStartWorkout, onEnd = onEndWorkout)
             UrineColorGuide(todayBioCount = todayBioCount, onGrade = onBioGrade, onUndo = onUndoBio)
-            TodayLogCard(logs)
+            TodayLogCard(logs, onDeleteLog)
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -465,7 +466,7 @@ private fun UrineColorGuide(todayBioCount: Int, onGrade: (Int) -> Unit, onUndo: 
 }
 
 @Composable
-private fun TodayLogCard(logs: List<IntakeLog>) {
+private fun TodayLogCard(logs: List<IntakeLog>, onDeleteLog: (Long) -> Unit) {
     val lang = LocalLanguage.current
     val ml = tr("مل", "ml")
     val fmt = remember(lang) { SimpleDateFormat("hh:mm a", clockLocale(lang)) }
@@ -492,6 +493,9 @@ private fun TodayLogCard(logs: List<IntakeLog>) {
                             Text(via, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(fmt.format(Date(log.timestamp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = { onDeleteLog(log.id) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
+                            Text("🗑️", fontSize = 16.sp)
+                        }
                     }
                 }
             }

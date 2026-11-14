@@ -361,6 +361,13 @@ object HydrationManager {
         return BioOutcome(grade = grade, addedMl = bonus, openCamera = grade >= 7, flushWarning = flushWarning)
     }
 
+    /** Deletes a logged drink (e.g. a test entry) and recomputes the schedule/widgets. */
+    suspend fun deleteIntakeLog(context: Context, logId: Long) {
+        AppDatabase.get(context).intakeDao().deleteLogById(logId)
+        updateAllHydroWidgets(context)
+        rescheduleFrom(context)
+    }
+
     suspend fun undoLastBioCheck(context: Context) {
         val dao = AppDatabase.get(context).intakeDao()
         val last = dao.lastBioCheck() ?: return

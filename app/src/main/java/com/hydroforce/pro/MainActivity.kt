@@ -223,7 +223,8 @@ private fun HydroNavHost(vm: MainViewModel) {
                                 }
                             }
                         },
-                        onUndoBio = { vm.undoBioCheck() }
+                        onUndoBio = { vm.undoBioCheck() },
+                        onDeleteLog = { vm.deleteIntakeLog(it) }
                     )
                 }
             }

@@ -18,8 +18,13 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.Canvas
@@ -61,7 +66,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -82,40 +89,55 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
-/** Drink/container labels ML Kit tends to put on transparent bottles, cups and glasses. */
-val ACCEPTED_DRINK_LABELS = setOf(
-    "water", "bottle", "water bottle", "plastic bottle", "glass", "cup", "drink", "liquid",
-    "beverage", "drinkware", "mug", "pitcher", "tumbler", "teapot", "tea", "coffee", "coffeecup",
-    "glassware", "jug", "flask", "tableware", "plastic", "cylinder", "fluid", "aqua", "cap",
-    "bottle cap", "mineral water", "container", "soft drink", "solution", "transparent"
+// ---- Three-tier strict filtering ----
+/** Instant reject (food / smoking / electronics) at >= [BLACKLIST_THRESHOLD]. */
+val BLACKLIST_LABELS = setOf(
+    "food", "fruit", "vegetable", "carrot", "meal", "dish", "plate", "salad", "snack", "bread",
+    "meat", "pasta", "rice", "produce", "cuisine", "baked goods", "fast food", "dessert", "bowl",
+    "cigarette", "electronic cigarette", "vape", "tobacco", "ashtray", "lighter", "smoke", "smoking",
+    "electronic device", "gadget", "mobile phone", "telephone", "remote", "mouse", "keyboard",
+    "cosmetics", "perfume", "toy", "tool"
 )
+const val BLACKLIST_THRESHOLD = 0.38f
 
-/** Hard blacklist: real food/plates reject even if a drink word is also present. */
-val EXCLUDED_FOOD_LABELS = setOf(
-    "food", "fruit", "vegetable", "carrot", "meal", "dish", "plate", "salad", "snack",
-    "bread", "meat", "pasta", "rice", "produce", "cuisine", "baked goods", "fast food", "dessert"
+/** Explicit drink/container words accepted directly at >= [CONFIDENCE_THRESHOLD]. */
+val DIRECT_DRINK_LABELS = setOf(
+    "water bottle", "plastic bottle", "bottle", "cup", "mug", "teacup", "coffee cup", "coffeecup",
+    "drinking glass", "tumbler", "pitcher", "teapot", "water", "mineral water", "drink", "beverage",
+    "tea", "coffee", "jug", "flask", "soft drink", "juice"
 )
+const val CONFIDENCE_THRESHOLD = 0.45f
 
-const val CONFIDENCE_THRESHOLD = 0.35f
-const val FOOD_THRESHOLD = 0.45f
+/** "glass"/"drinkware" only count WITH a liquid/drink word present (blocks glass lighters/vapes). */
+val CONDITIONAL_GLASS = setOf("glass", "drinkware")
+val LIQUID_CONTEXT = setOf("liquid", "water", "fluid", "drink", "beverage", "cup", "bottle", "aqua")
+const val CONTEXT_THRESHOLD = 0.30f
+
+private val RELEVANT_LABELS = DIRECT_DRINK_LABELS + CONDITIONAL_GLASS + LIQUID_CONTEXT + BLACKLIST_LABELS
 
 private val VeroCyan = Color(0xFF00E5FF)
 private val VeroGreen = Color(0xFF00E676)
+private val VeroRed = Color(0xFFFF5252)
 private val VeroOrange = Color(0xFFFF8F3A)
+private val RoyalBlue = Color(0xFF003B99)
 
 private val VOLUME_OPTIONS = listOf(100, 200, 300, 400, 500)
 
 private sealed interface Outcome {
-    data object Food : Outcome
+    data object Rejected : Outcome          // food / smoking / electronics
     data class Drink(val label: String) : Outcome
     data class None(val seen: List<String>) : Outcome
 }
 
 private fun evaluate(labels: List<Pair<String, Float>>): Outcome {
-    if (labels.any { it.first.lowercase() in EXCLUDED_FOOD_LABELS && it.second >= FOOD_THRESHOLD }) return Outcome.Food
-    val drink = labels.firstOrNull { it.first.lowercase() in ACCEPTED_DRINK_LABELS && it.second >= CONFIDENCE_THRESHOLD }
-    return if (drink != null) Outcome.Drink(drink.first)
-    else Outcome.None(labels.sortedByDescending { it.second }.take(4).map { it.first })
+    val lower = labels.map { it.first.lowercase() to it.second }
+    if (lower.any { it.first in BLACKLIST_LABELS && it.second >= BLACKLIST_THRESHOLD }) return Outcome.Rejected
+    lower.firstOrNull { it.first in DIRECT_DRINK_LABELS && it.second >= CONFIDENCE_THRESHOLD }
+        ?.let { return Outcome.Drink(it.first) }
+    val hasGlass = lower.any { it.first in CONDITIONAL_GLASS && it.second >= CONFIDENCE_THRESHOLD }
+    val hasLiquid = lower.any { it.first in LIQUID_CONTEXT && it.second >= CONTEXT_THRESHOLD }
+    if (hasGlass && hasLiquid) return Outcome.Drink("glass")
+    return Outcome.None(lower.filter { it.first in RELEVANT_LABELS }.sortedByDescending { it.second }.take(3).map { it.first })
 }
 
 /** Center ROI crop: keep the middle [fraction] of the frame to ignore the background. */
@@ -130,12 +152,11 @@ private fun cropCenter(src: Bitmap, fraction: Float = 0.6f): Bitmap {
 private sealed interface VerifyState {
     data object Ready : VerifyState
     data object Analyzing : VerifyState
-    data class Rejected(val seen: List<String>, val isFood: Boolean) : VerifyState
+    data class Rejected(val seen: List<String>, val isObject: Boolean) : VerifyState
     data class Verified(val matched: String) : VerifyState
     data class Error(val message: String) : VerifyState
 }
 
-/** Live preview labeler (throttled ~500ms) on the center-cropped frame. */
 @OptIn(ExperimentalGetImage::class)
 private fun analyzeLiveFrame(
     proxy: ImageProxy,
@@ -193,7 +214,7 @@ fun CameraVerificationScreen(
         Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
-            tr("ضع الكأس داخل الإطار الأوسط — نقبل تلقائياً بمجرد التعرّف", "Put the cup inside the center frame — we auto-accept once recognized"),
+            tr("ضع الكأس داخل الإطار الأوسط ثم اضغط توثيق الشرب", "Put the cup inside the center frame, then tap Verify"),
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.8f),
             textAlign = TextAlign.Center
@@ -234,10 +255,10 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
     var state by remember { mutableStateOf<VerifyState>(VerifyState.Ready) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var torchOn by remember { mutableStateOf(false) }
-    var captureAttempts by remember { mutableIntStateOf(0) }
+    var failedAttempts by remember { mutableIntStateOf(0) }
     var liveLabels by remember { mutableStateOf<List<Pair<String, Float>>>(emptyList()) }
-    var lockedOn by remember { mutableStateOf(false) }
-    var consecutiveValid by remember { mutableIntStateOf(0) }
+    var isTargetLocked by remember { mutableStateOf(false) }
+    var isRejectedObject by remember { mutableStateOf(false) }
     var lastValidLabel by remember { mutableStateOf<String?>(null) }
     var lastValidTs by remember { mutableLongStateOf(0L) }
     var overrideVerify by remember { mutableStateOf(false) }
@@ -254,11 +275,12 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
     val imageCapture = remember {
         ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
     }
+    // Low base threshold (0.30) so we read the top labels of the cropped frame.
     val labeler = remember {
-        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.15f).build())
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.30f).build())
     }
     val liveLabeler = remember {
-        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.15f).build())
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.30f).build())
     }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val lastAnalysisTs = remember { AtomicLong(0L) }
@@ -278,33 +300,24 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                 }
                 imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
                     analyzeLiveFrame(proxy, liveLabeler, lastAnalysisTs) { labels ->
-                        liveLabels = labels.sortedByDescending { it.second }.take(3)
+                        // Live analysis NEVER auto-records — it only drives the visual HUD state.
+                        liveLabels = labels.map { it.first.lowercase() to it.second }
+                            .filter { it.first in RELEVANT_LABELS }
+                            .sortedByDescending { it.second }
+                            .take(3)
                         when (val o = evaluate(labels)) {
                             is Outcome.Drink -> {
-                                lockedOn = true
-                                lastValidLabel = o.label
-                                lastValidTs = System.currentTimeMillis()
-                                consecutiveValid += 1
-                                // Hands-free auto-verify after 2 consecutive valid frames.
-                                if (consecutiveValid >= 2 && state !is VerifyState.Analyzing && state !is VerifyState.Verified) {
-                                    overrideVerify = false
-                                    state = VerifyState.Verified(o.label)
-                                }
+                                isTargetLocked = true; isRejectedObject = false
+                                lastValidLabel = o.label; lastValidTs = System.currentTimeMillis()
                             }
-                            else -> {
-                                lockedOn = false
-                                consecutiveValid = 0
-                            }
+                            is Outcome.Rejected -> { isTargetLocked = false; isRejectedObject = true }
+                            is Outcome.None -> { isTargetLocked = false; isRejectedObject = false }
                         }
                     }
                 }
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    imageCapture,
-                    imageAnalysis
+                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture, imageAnalysis
                 )
             } catch (e: Exception) {
                 state = VerifyState.Error(tr(lang, "تعذر تشغيل الكاميرا: ${e.message ?: ""}", "Couldn't start the camera: ${e.message ?: ""}"))
@@ -316,16 +329,13 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
         }
     }
     DisposableEffect(Unit) {
-        onDispose {
-            labeler.close()
-            liveLabeler.close()
-        }
+        onDispose { labeler.close(); liveLabeler.close() }
     }
 
     LaunchedEffect(verified) {
         if (verified != null) {
             playSuccessTone()
-            delay(1200)
+            delay(1100)
             onVerified(selectedAmount, overrideVerify)
         }
     }
@@ -339,7 +349,7 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                     val rotation = image.imageInfo.rotationDegrees
                     val full = try { image.toBitmap() } catch (e: Exception) { null } finally { image.close() }
                     if (full == null) {
-                        captureAttempts++
+                        failedAttempts++
                         state = VerifyState.Error(tr(lang, "تعذرت قراءة الصورة، حاول مرة أخرى", "Couldn't read the image, try again"))
                         return
                     }
@@ -348,12 +358,12 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                         .addOnSuccessListener { labels ->
                             when (val outcome = evaluate(labels.map { it.text to it.confidence })) {
                                 is Outcome.Drink -> { overrideVerify = false; state = VerifyState.Verified(outcome.label) }
-                                is Outcome.Food -> { captureAttempts++; state = VerifyState.Rejected(emptyList(), isFood = true) }
-                                is Outcome.None -> { captureAttempts++; state = VerifyState.Rejected(outcome.seen, isFood = false) }
+                                is Outcome.Rejected -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true) }
+                                is Outcome.None -> { failedAttempts++; state = VerifyState.Rejected(outcome.seen, isObject = false) }
                             }
                         }
                         .addOnFailureListener {
-                            captureAttempts++
+                            failedAttempts++
                             state = VerifyState.Error(tr(lang, "فشل التحليل: ${it.message ?: ""}", "Analysis failed: ${it.message ?: ""}"))
                         }
                         .addOnCompleteListener {
@@ -363,31 +373,29 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    captureAttempts++
+                    failedAttempts++
                     state = VerifyState.Error(tr(lang, "فشل الالتقاط: ${exception.message ?: ""}", "Capture failed: ${exception.message ?: ""}"))
                 }
             }
         )
     }
 
-    fun onCaptureClick() {
+    // Manual verify: accept instantly if the live scan locked on within the last 2s; else capture & scan.
+    fun onVerifyClick() {
         val now = System.currentTimeMillis()
-        when {
-            // Already saw a valid cup recently → accept instantly.
-            lastValidLabel != null && now - lastValidTs < 4000 -> {
-                overrideVerify = false
-                state = VerifyState.Verified(lastValidLabel ?: "")
-            }
-            // Smart bypass: after a failed attempt, never block the user.
-            captureAttempts >= 1 -> {
-                overrideVerify = true
-                state = VerifyState.Verified("override")
-            }
-            else -> capture()
+        if (isTargetLocked || (lastValidLabel != null && now - lastValidTs < 2000)) {
+            overrideVerify = false
+            state = VerifyState.Verified(lastValidLabel ?: "cup")
+        } else {
+            capture()
         }
     }
 
-    val frameColor = if (verified != null || lockedOn) VeroGreen else VeroCyan
+    // Pulsing glow for the locked state.
+    val pulse by rememberInfiniteTransition(label = "glow").animateFloat(
+        initialValue = 0.35f, targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "pulse"
+    )
 
     Box(
         Modifier
@@ -397,8 +405,8 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
             .border(
                 3.dp,
                 when {
-                    state is VerifyState.Verified || lockedOn -> VeroGreen
-                    state is VerifyState.Rejected || state is VerifyState.Error -> HydroDanger
+                    verified != null || isTargetLocked -> VeroGreen
+                    isRejectedObject || state is VerifyState.Rejected || state is VerifyState.Error -> VeroRed
                     else -> Color.White.copy(alpha = 0.5f)
                 },
                 RoundedCornerShape(28.dp)
@@ -407,8 +415,15 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
     ) {
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 
-        // Center ROI viewfinder (matches the 60% crop region).
+        // Viewfinder HUD: brackets + central glassy water drop, in 3 states.
         Canvas(Modifier.fillMaxSize()) {
+            val locked = verified != null || isTargetLocked
+            val rejected = !locked && (isRejectedObject || state is VerifyState.Rejected || state is VerifyState.Error)
+            val bracketColor = when {
+                locked -> VeroGreen
+                rejected -> VeroRed
+                else -> VeroCyan.copy(alpha = 0.7f)
+            }
             val side = minOf(size.width, size.height) * 0.6f
             val left = (size.width - side) / 2f
             val top = (size.height - side) / 2f
@@ -416,11 +431,46 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
             val bottom = top + side
             val arm = side * 0.18f
             val sw = 4.dp.toPx()
-            fun l(a: Offset, b: Offset) = drawLine(frameColor, a, b, strokeWidth = sw, cap = StrokeCap.Round)
-            l(Offset(left, top), Offset(left + arm, top)); l(Offset(left, top), Offset(left, top + arm))
-            l(Offset(right, top), Offset(right - arm, top)); l(Offset(right, top), Offset(right, top + arm))
-            l(Offset(left, bottom), Offset(left + arm, bottom)); l(Offset(left, bottom), Offset(left, bottom - arm))
-            l(Offset(right, bottom), Offset(right - arm, bottom)); l(Offset(right, bottom), Offset(right, bottom - arm))
+            fun l(a: Offset, b: Offset, c: Color, s: Float) = drawLine(c, a, b, strokeWidth = s, cap = StrokeCap.Round)
+            // Glow pulse around brackets when locked.
+            if (locked) {
+                val gw = sw * 3f
+                val gc = VeroGreen.copy(alpha = pulse * 0.5f)
+                l(Offset(left, top), Offset(left + arm, top), gc, gw); l(Offset(left, top), Offset(left, top + arm), gc, gw)
+                l(Offset(right, top), Offset(right - arm, top), gc, gw); l(Offset(right, top), Offset(right, top + arm), gc, gw)
+                l(Offset(left, bottom), Offset(left + arm, bottom), gc, gw); l(Offset(left, bottom), Offset(left, bottom - arm), gc, gw)
+                l(Offset(right, bottom), Offset(right - arm, bottom), gc, gw); l(Offset(right, bottom), Offset(right, bottom - arm), gc, gw)
+            }
+            l(Offset(left, top), Offset(left + arm, top), bracketColor, sw); l(Offset(left, top), Offset(left, top + arm), bracketColor, sw)
+            l(Offset(right, top), Offset(right - arm, top), bracketColor, sw); l(Offset(right, top), Offset(right, top + arm), bracketColor, sw)
+            l(Offset(left, bottom), Offset(left + arm, bottom), bracketColor, sw); l(Offset(left, bottom), Offset(left, bottom - arm), bracketColor, sw)
+            l(Offset(right, bottom), Offset(right - arm, bottom), bracketColor, sw); l(Offset(right, bottom), Offset(right, bottom - arm), bracketColor, sw)
+
+            // Central water drop watermark.
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val dw = side * 0.26f
+            val dh = side * 0.34f
+            val drop = Path().apply {
+                moveTo(cx, cy - dh / 2f)
+                cubicTo(cx + dw * 0.62f, cy - dh * 0.1f, cx + dw * 0.5f, cy + dh * 0.5f, cx, cy + dh * 0.5f)
+                cubicTo(cx - dw * 0.5f, cy + dh * 0.5f, cx - dw * 0.62f, cy - dh * 0.1f, cx, cy - dh / 2f)
+                close()
+            }
+            if (locked) {
+                drawPath(drop, RoyalBlue.copy(alpha = 0.8f))
+                drawPath(drop, VeroCyan, style = Stroke(2.5.dp.toPx()))
+                // green check inside the drop
+                val chk = Path().apply {
+                    moveTo(cx - dw * 0.22f, cy + dh * 0.05f)
+                    lineTo(cx - dw * 0.02f, cy + dh * 0.22f)
+                    lineTo(cx + dw * 0.3f, cy - dh * 0.12f)
+                }
+                drawPath(chk, VeroGreen, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+            } else {
+                drawPath(drop, Color.White.copy(alpha = 0.22f))
+                drawPath(drop, VeroCyan.copy(alpha = 0.5f), style = Stroke(1.5.dp.toPx()))
+            }
         }
 
         Box(
@@ -439,36 +489,20 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
             Text(if (torchOn) "🔦" else "💡", fontSize = 20.sp)
         }
 
-        if (verified == null) {
-            if (lockedOn) {
-                Text(
-                    tr("تم التعرف على الكوب — سيُقبل تلقائياً ✓", "Cup recognized — auto-accepting ✓"),
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(10.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(VeroGreen.copy(alpha = 0.85f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            } else if (liveLabels.isNotEmpty()) {
-                val visionText = liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
-                Text(
-                    tr("الرؤية: ", "Vision: ") + visionText,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(10.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
+        if (verified == null && liveLabels.isNotEmpty()) {
+            val visionText = liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
+            Text(
+                tr("الرؤية: ", "Vision: ") + visionText,
+                color = Color.White,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
         }
 
         if (state is VerifyState.Analyzing) {
@@ -509,8 +543,8 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
 
     when (val s = state) {
         is VerifyState.Rejected -> MessageBox(
-            if (s.isFood) {
-                tr("تم رصد طعام أو صحن! يرجى تصوير الكأس أو القارورة فقط 🚫", "Food or a plate detected! Please capture only the cup or bottle 🚫")
+            if (s.isObject) {
+                tr("رُصد جسم غير مسموح (طعام/إلكترونيات)! صوّر الكأس أو القارورة فقط 🚫", "A non-allowed object (food/electronics) was detected! Capture only the cup or bottle 🚫")
             } else {
                 tr("لم يتم رصد كأس بوضوح — قرّب العبوة داخل الإطار", "No clear cup detected — move the bottle inside the frame") +
                     if (s.seen.isNotEmpty()) tr("\n(تم رصد: ${s.seen.joinToString("، ")})", "\n(detected: ${s.seen.joinToString(", ")})") else ""
@@ -545,26 +579,34 @@ private fun CameraContent(defaultAmountMl: Int, onVerified: (Int, Boolean) -> Un
 
     Spacer(Modifier.height(12.dp))
 
-    val smartBypass = captureAttempts >= 1
+    // Main button is ALWAYS the camera verify action.
     Button(
-        onClick = { onCaptureClick() },
+        onClick = { onVerifyClick() },
         enabled = state !is VerifyState.Analyzing && verified == null,
         modifier = Modifier.fillMaxWidth().height(60.dp),
         shape = RoundedCornerShape(20.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (smartBypass) VeroOrange else Color.White,
-            contentColor = if (smartBypass) Color.White else Color(0xFF0A1118)
+            containerColor = if (isTargetLocked) VeroGreen else Color.White,
+            contentColor = Color(0xFF0A1118)
         )
     ) {
         Text(
-            when {
-                smartBypass -> tr("تأكيد الشرب مباشرة ✓ (تجاوز ذكي)", "Confirm drink ✓ (smart bypass)")
-                else -> tr("📸 التقاط ($selectedAmount مل)", "📸 Capture ($selectedAmount ml)")
-            },
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
+            if (isTargetLocked) tr("توثيق الشرب ✓", "Verify drink ✓") else tr("📷 توثيق الشرب ($selectedAmount مل)", "📷 Verify drink ($selectedAmount ml)"),
+            fontSize = 17.sp, fontWeight = FontWeight.Bold
         )
+    }
+
+    // Emergency promise bypass only after 3 failed manual attempts, as a separate secondary button.
+    if (failedAttempts >= 3 && verified == null) {
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { overrideVerify = true; state = VerifyState.Verified("promise") },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = VeroOrange, contentColor = Color.White)
+        ) {
+            Text(tr("تأكيد بالتعهد 🤝 (تجاوز)", "Confirm by promise 🤝 (bypass)"), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 

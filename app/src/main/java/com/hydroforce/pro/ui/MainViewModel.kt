@@ -180,6 +180,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { HydrationManager.undoLastBioCheck(getApplication()) }
     }
 
+    fun deleteIntakeLog(logId: Long) {
+        viewModelScope.launch { HydrationManager.deleteIntakeLog(getApplication(), logId) }
+    }
+
     private val _pendingDrinkType = kotlinx.coroutines.flow.MutableStateFlow(DrinkType.WATER)
     val pendingDrinkType: StateFlow<DrinkType> = _pendingDrinkType
 

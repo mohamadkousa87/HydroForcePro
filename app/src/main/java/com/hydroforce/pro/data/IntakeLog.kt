@@ -58,6 +58,9 @@ interface IntakeDao {
     @Query("SELECT * FROM intake_logs ORDER BY timestamp DESC LIMIT 1")
     suspend fun lastIntake(): IntakeLog?
 
+    @Query("DELETE FROM intake_logs WHERE id = :id")
+    suspend fun deleteLogById(id: Long)
+
     // ----- Bio-check (urine color) -----
     @Insert
     suspend fun insertBioCheck(log: BioCheckLog): Long
