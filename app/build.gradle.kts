@@ -100,6 +100,8 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraX")
 
     implementation("com.google.mlkit:image-labeling:17.0.8")
+    // On-device OCR (reads bottle/carton labels, 100% offline) — Vision label reader.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     // Lightweight on-device TFLite runtime for the optional COCO object detector (Vision Source B).
     implementation("org.tensorflow:tensorflow-lite:2.14.0")

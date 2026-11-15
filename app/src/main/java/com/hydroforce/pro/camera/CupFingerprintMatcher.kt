@@ -108,12 +108,53 @@ object CupFingerprintMatcher {
     }
 
     /**
+     * True when the center clearly stands out from the surrounding ring — i.e. a real object sits in
+     * front of the background. A uniform wall/floor, or a see-through glass that passes the same
+     * background through its center, fails this (center ≈ surround), so we won't trust a color match.
+     */
+    fun hasDistinctForeground(src: Bitmap): Boolean {
+        val n = 32
+        val s = Bitmap.createScaledBitmap(src, n, n, true)
+        val px = IntArray(n * n)
+        s.getPixels(px, 0, n, 0, 0, n, n)
+        if (s !== src) runCatching { s.recycle() }
+
+        var cr = 0L; var cg = 0L; var cb = 0L; var cCount = 0 // center 30%
+        var rr = 0L; var rg = 0L; var rb = 0L; var rCount = 0 // outer ring (border 20%)
+        var centerEdge = 0f
+        val cLo = (n * 0.35f).toInt(); val cHi = (n * 0.65f).toInt()
+        val bLo = (n * 0.20f).toInt(); val bHi = (n * 0.80f).toInt()
+        fun lum(p: Int) = 0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)
+        for (y in 0 until n) for (x in 0 until n) {
+            val p = px[y * n + x]
+            if (x in cLo until cHi && y in cLo until cHi) {
+                cr += (p shr 16) and 0xFF; cg += (p shr 8) and 0xFF; cb += p and 0xFF; cCount++
+                if (x in 1 until n - 1 && y in 1 until n - 1) {
+                    centerEdge += abs(lum(px[y * n + x + 1]) - lum(px[y * n + x - 1])) +
+                        abs(lum(px[(y + 1) * n + x]) - lum(px[(y - 1) * n + x]))
+                }
+            } else if (x < bLo || x >= bHi || y < bLo || y >= bHi) {
+                rr += (p shr 16) and 0xFF; rg += (p shr 8) and 0xFF; rb += p and 0xFF; rCount++
+            }
+        }
+        if (cCount == 0 || rCount == 0) return true
+        val dr = cr.toFloat() / cCount - rr.toFloat() / rCount
+        val dg = cg.toFloat() / cCount - rg.toFloat() / rCount
+        val db = cb.toFloat() / cCount - rb.toFloat() / rCount
+        val colorDist = sqrt(dr * dr + dg * dg + db * db) / 441f // 0..1
+        val centerEdgeDensity = centerEdge / cCount / 255f
+        // Distinct unless the center is nearly identical in color to the ring AND has almost no edges.
+        return !(colorDist < 0.035f && centerEdgeDensity < 0.05f)
+    }
+
+    /**
      * Best saved cup whose COMBINED color+edge similarity clears [MATCH_THRESHOLD]. The edge block
      * must also clear [EDGE_FLOOR], so a plain wall/floor that merely shares a color can't match a
      * container that has real structure.
      */
     fun findBestMatch(bitmap: Bitmap, savedCups: List<SavedCupSignature>): SavedCupSignature? {
         if (savedCups.isEmpty()) return null
+        if (!hasDistinctForeground(bitmap)) return null // no object in front → don't trust color match
         val sig = extractVisualSignature(bitmap)
         var best: SavedCupSignature? = null
         var bestScore = MATCH_THRESHOLD

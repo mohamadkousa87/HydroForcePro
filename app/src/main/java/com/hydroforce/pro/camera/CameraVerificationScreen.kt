@@ -91,6 +91,7 @@ import com.hydroforce.pro.ui.HydroDanger
 import com.hydroforce.pro.ui.LocalLanguage
 import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.delay
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
@@ -124,8 +125,11 @@ private fun analyzeLiveFrame(
     proxy: ImageProxy,
     labeler: ImageLabeler,
     lastTs: AtomicLong,
+    lastOcrTs: AtomicLong,
     savedCups: List<SavedCupSignature>,
     tflite: OptionalTfliteModel?,
+    ocr: VeroSipOcr?,
+    executor: Executor,
     onResult: (VeroSipVisionEngine.Decision, List<Pair<String, Float>>) -> Unit
 ) {
     val now = System.currentTimeMillis()
@@ -134,6 +138,9 @@ private fun analyzeLiveFrame(
         return
     }
     lastTs.set(now)
+    // OCR is heavier → run it at most ~once per 1.2s during the live preview.
+    val doOcr = now - lastOcrTs.get() > 1200
+    if (doOcr) lastOcrTs.set(now)
     val full = try { proxy.toBitmap() } catch (e: Exception) { null }
     if (full == null) {
         proxy.close()
@@ -141,13 +148,15 @@ private fun analyzeLiveFrame(
     }
     val rot = proxy.imageInfo.rotationDegrees
     val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
+    // Listeners run on [executor] (single background thread) so OCR's blocking read is safe and the
+    // bitmap is only recycled after the success listener fully finishes.
     labeler.process(InputImage.fromBitmap(cropped, rot))
-        .addOnSuccessListener { labels ->
+        .addOnSuccessListener(executor) { labels ->
             val pairs = labels.map { it.text to it.confidence }
-            val decision = VeroSipVisionEngine.decide(cropped, pairs, savedCups, tflite)
+            val decision = VeroSipVisionEngine.decide(cropped, pairs, savedCups, tflite, ocr, doOcr)
             onResult(decision, VeroSipVisionEngine.relevant(pairs))
         }
-        .addOnCompleteListener {
+        .addOnCompleteListener(executor) {
             proxy.close()
             if (cropped !== full) runCatching { cropped.recycle() }
             runCatching { full.recycle() }
@@ -237,6 +246,7 @@ private fun CameraContent(
     var isTargetLocked by remember { mutableStateOf(false) }
     var isRejectedObject by remember { mutableStateOf(false) }
     var lockedSavedName by remember { mutableStateOf<String?>(null) }
+    var lockedOcrLabel by remember { mutableStateOf<String?>(null) }
     var lastValidLabel by remember { mutableStateOf<String?>(null) }
     var lastValidTs by remember { mutableLongStateOf(0L) }
     var overrideVerify by remember { mutableStateOf(false) }
@@ -251,6 +261,8 @@ private fun CameraContent(
     val savedCupsRef = remember { mutableStateOf(savedCups) }
     savedCupsRef.value = savedCups
     val tflite = remember { OptionalTfliteModel(context) }
+    val ocr = remember { VeroSipOcr() }
+    val lastOcrTs = remember { AtomicLong(0L) }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -282,14 +294,21 @@ private fun CameraContent(
                 val provider = future.get()
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
-                    analyzeLiveFrame(proxy, liveLabeler, lastAnalysisTs, savedCupsRef.value, tflite) { decision, rel ->
+                    analyzeLiveFrame(
+                        proxy, liveLabeler, lastAnalysisTs, lastOcrTs,
+                        savedCupsRef.value, tflite, ocr, analysisExecutor
+                    ) { decision, rel ->
                         liveLabels = rel
                         isTargetLocked = decision.locked
                         isRejectedObject = decision.rejected
                         if (decision.locked) {
                             lockedSavedName = decision.savedName
+                            lockedOcrLabel = decision.ocrLabel
                             lastValidLabel = decision.label
                             lastValidTs = System.currentTimeMillis()
+                        } else {
+                            lockedSavedName = null
+                            lockedOcrLabel = null
                         }
                     }
                 }
@@ -333,21 +352,22 @@ private fun CameraContent(
                         return
                     }
                     val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
+                    // At the verification moment, run the FULL pipeline incl. OCR, on the background thread.
                     labeler.process(InputImage.fromBitmap(cropped, rotation))
-                        .addOnSuccessListener { labels ->
+                        .addOnSuccessListener(analysisExecutor) { labels ->
                             val pairs = labels.map { it.text to it.confidence }
-                            val d = VeroSipVisionEngine.decide(cropped, pairs, savedCupsRef.value, tflite)
+                            val d = VeroSipVisionEngine.decide(cropped, pairs, savedCupsRef.value, tflite, ocr, useOcr = true)
                             when {
                                 d.locked -> { overrideVerify = false; state = VerifyState.Verified(d.label) }
                                 d.rejected -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true) }
                                 else -> { failedAttempts++; state = VerifyState.Rejected(VeroSipVisionEngine.relevant(pairs).map { it.first }, isObject = false) }
                             }
                         }
-                        .addOnFailureListener {
+                        .addOnFailureListener(analysisExecutor) {
                             failedAttempts++
                             state = VerifyState.Error(tr(lang, "فشل التحليل: ${it.message ?: ""}", "Analysis failed: ${it.message ?: ""}"))
                         }
-                        .addOnCompleteListener {
+                        .addOnCompleteListener(analysisExecutor) {
                             if (cropped !== full) runCatching { cropped.recycle() }
                             runCatching { full.recycle() }
                         }
@@ -565,8 +585,10 @@ private fun CameraContent(
         }
 
         if (verified == null) {
+            val highlight = lockedSavedName != null || (isTargetLocked && lockedOcrLabel != null)
             val bar = when {
                 lockedSavedName != null -> tr("تم التعرف على: ${lockedSavedName} ⭐", "Recognized: ${lockedSavedName} ⭐")
+                isTargetLocked && lockedOcrLabel != null -> tr("تم قراءة ملصق العبوة: ${lockedOcrLabel} ✓", "Label read: ${lockedOcrLabel} ✓")
                 liveLabels.isNotEmpty() -> tr("الرؤية: ", "Vision: ") + liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
                 else -> null
             }
@@ -574,7 +596,7 @@ private fun CameraContent(
                 Text(
                     bar, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp).clip(RoundedCornerShape(10.dp))
-                        .background(if (lockedSavedName != null) VeroGreen.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.55f))
+                        .background(if (highlight) VeroGreen.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
