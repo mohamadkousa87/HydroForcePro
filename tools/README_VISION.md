@@ -40,10 +40,12 @@
 ## الفحص السحابي الاختياري (Cloud AI — BYOK)
 
 [`CloudVisionVerifier.kt`](../app/src/main/java/com/hydroforce/pro/camera/CloudVisionVerifier.kt)
-+ [`ui/CloudAiDialog.kt`](../app/src/main/java/com/hydroforce/pro/ui/CloudAiDialog.kt): عند التفعيل
-ووجود مفتاح Gemini مجاني من المستخدم واتصال إنترنت، تُرسل صورة مصغّرة إلى `gemini-2.5-flash`
-للتحقق بدقة؛ أي خطأ/عدم اتصال → **رجوع تلقائي للوضع المحلي**. المفتاح يُخزّن محلياً فقط
-(`SettingsRepository`)، والدليل المبسّط يفتح `https://aistudio.google.com/apikey`.
++ [`ui/CloudAiDialog.kt`](../app/src/main/java/com/hydroforce/pro/ui/CloudAiDialog.kt).
+**"وضع السحابة = الحَكَم":** عند تفعيله ووجود مفتاح، تضيء المعاينة الحية أخضر **فقط لأكوابك ⭐**
+(محلي فوري)؛ وكل ما عداها يبقى سماوياً مع "سيُدقّق عند الضغط 🌐"، وعند الضغط يكون السحابي هو
+الحَكَم الوحيد. أكوابك المحفوظة تُقبل دون نداء سحابي. عند تعذّر السحابي (لا إنترنت/خطأ مفتاح)
+→ **إعلام وإيقاف** (لا رجوع صامت). المفتاح يُخزّن محلياً فقط (`SettingsRepository`)، والدليل المبسّط
+يفتح `https://aistudio.google.com/apikey`.
 
 ## كاشف COCO الجاهز (مُدمَج)
 

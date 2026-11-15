@@ -135,6 +135,7 @@ private fun analyzeLiveFrame(
     tflite: OptionalTfliteModel?,
     ocr: VeroSipOcr?,
     barcode: VeroSipBarcode?,
+    cloudMode: Boolean,
     executor: Executor,
     onResult: (VeroSipVisionEngine.Decision, List<Pair<String, Float>>) -> Unit
 ) {
@@ -156,7 +157,7 @@ private fun analyzeLiveFrame(
     labeler.process(InputImage.fromBitmap(cropped, rot))
         .addOnSuccessListener(executor) { labels ->
             val pairs = labels.map { it.text to it.confidence }
-            val decision = VeroSipVisionEngine.decide(cropped, pairs, savedCups, tflite, ocr, barcode, doHeavy)
+            val decision = VeroSipVisionEngine.decide(cropped, pairs, savedCups, tflite, ocr, barcode, doHeavy, cloudMode)
             onResult(decision, VeroSipVisionEngine.relevant(pairs))
         }
         .addOnCompleteListener(executor) {
@@ -318,7 +319,8 @@ private fun CameraContent(
                 imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
                     analyzeLiveFrame(
                         proxy, liveLabeler, lastAnalysisTs, lastHeavyTs,
-                        savedCupsRef.value, tflite, ocr, barcode, analysisExecutor
+                        savedCupsRef.value, tflite, ocr, barcode,
+                        cloudEnabledRef.value && cloudKeyRef.value.isNotBlank(), analysisExecutor
                     ) { decision, rel ->
                         liveLabels = rel
                         isTargetLocked = decision.locked
@@ -376,13 +378,17 @@ private fun CameraContent(
                     val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
                     analysisExecutor.execute {
                         try {
-                            // Optional Cloud AI (BYOK) first; any failure falls back to the local engine.
+                            // Cloud mode: the cloud is the sole judge. On any failure we INFORM & STOP
+                            // (no silent local fallback), per the chosen design.
                             if (cloudEnabledRef.value && cloudKeyRef.value.isNotBlank()) {
                                 when (CloudVisionVerifier.verify(cropped, cloudKeyRef.value)) {
-                                    is CloudVisionVerifier.Result.Positive -> { overrideVerify = false; state = VerifyState.Verified("cloud"); return@execute }
-                                    CloudVisionVerifier.Result.Negative -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true); return@execute }
-                                    CloudVisionVerifier.Result.Unavailable -> {}
+                                    is CloudVisionVerifier.Result.Positive -> { overrideVerify = false; state = VerifyState.Verified("cloud") }
+                                    CloudVisionVerifier.Result.Negative -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true) }
+                                    CloudVisionVerifier.Result.Unavailable -> state = VerifyState.Error(
+                                        tr(lang, "تعذّر الفحص السحابي — تحقق من الإنترنت أو المفتاح وحاول ثانية 🌐", "Cloud check failed — check your internet or key and try again 🌐")
+                                    )
                                 }
+                                return@execute
                             }
                             val labels = runCatching {
                                 Tasks.await(labeler.process(InputImage.fromBitmap(cropped, rotation)), 1500, TimeUnit.MILLISECONDS)
@@ -668,9 +674,11 @@ private fun CameraContent(
         }
 
         if (verified == null) {
+            val cloudMode = cloudAiEnabled && geminiApiKey.isNotBlank()
             val highlight = lockedSavedName != null || (isTargetLocked && lockedOcrLabel != null)
             val bar = when {
                 lockedSavedName != null -> tr("تم التعرف على عبوتك: ${lockedSavedName} ⭐", "Recognized your cup: ${lockedSavedName} ⭐")
+                cloudMode -> tr("الوضع السحابي 🌐 — سيُدقّق عند الضغط", "Cloud mode 🌐 — verified on tap")
                 isTargetLocked && lockedOcrLabel != null -> tr("تم قراءة ملصق العبوة: ${lockedOcrLabel} ✓", "Label read: ${lockedOcrLabel} ✓")
                 liveLabels.isNotEmpty() -> tr("الرؤية: ", "Vision: ") + liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
                 else -> null

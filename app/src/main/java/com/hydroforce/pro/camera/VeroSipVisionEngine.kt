@@ -87,8 +87,20 @@ object VeroSipVisionEngine {
         tflite: OptionalTfliteModel?,
         ocr: VeroSipOcr? = null,
         barcode: VeroSipBarcode? = null,
-        useHeavy: Boolean = false
+        useHeavy: Boolean = false,
+        cloudMode: Boolean = false
     ): Decision {
+        // Cloud mode: the cloud is the judge (at the verify tap). The live preview only locks for the
+        // user's own saved cups (instant & free); everything else stays "scanning" until the cloud check.
+        if (cloudMode) {
+            val code = if (useHeavy && barcode != null) barcode.read(bitmap) else null
+            val ocrText = if (useHeavy && ocr != null) ocr.read(bitmap).rawText else null
+            matchSaved(savedCups, code, ocrText)?.let {
+                return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
+            }
+            return Decision(false, false, "", null)
+        }
+
         val lower = labels.map { it.first.lowercase() to it.second }
 
         // Heavy, high-value signals (barcode + OCR) — only when requested (throttled live, full on verify).
