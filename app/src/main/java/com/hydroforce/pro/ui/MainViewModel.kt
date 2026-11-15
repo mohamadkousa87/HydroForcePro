@@ -15,6 +15,7 @@ import com.hydroforce.pro.data.FastingMode
 import com.hydroforce.pro.data.FastingRecurrence
 import com.hydroforce.pro.data.IntakeLog
 import com.hydroforce.pro.data.Meeting
+import com.hydroforce.pro.data.SavedCupSignature
 import com.hydroforce.pro.data.ScheduleMath
 import com.hydroforce.pro.data.SettingsRepository
 import com.hydroforce.pro.data.StatsCalculator
@@ -92,6 +93,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.Eagerly, HydrationCalculator.calculate(UserProfile()))
 
     val ringing: StateFlow<Boolean> = AlarmService.ringing
+
+    /** The user's saved cup/bottle fingerprints for on-device recognition. */
+    val savedCups: StateFlow<List<SavedCupSignature>> = dao.cupSignaturesFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Persist a visual fingerprint of the user's own cup/bottle. */
+    fun saveCupSignature(name: String, volumeMl: Int, featureVector: FloatArray) {
+        viewModelScope.launch {
+            dao.insertCupSignature(
+                SavedCupSignature(
+                    name = name,
+                    defaultVolumeMl = volumeMl,
+                    featureVectorCsv = com.hydroforce.pro.camera.CupFingerprintMatcher.serialize(featureVector),
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun deleteCupSignature(id: Long) {
+        viewModelScope.launch { dao.deleteCupSignature(id) }
+    }
 
     val meetings: StateFlow<List<Meeting>> = repo.meetings
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

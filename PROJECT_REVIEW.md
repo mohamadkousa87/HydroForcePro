@@ -1,7 +1,7 @@
 # مراجعة تقنية شاملة — VeroSip
 
 > تطبيق أندرويد لتذكير شرب الماء، فلسفته أن **التنبيه لا يتوقف إلا بعد إثبات الشرب عبر الكاميرا + الذكاء الاصطناعي**.
-> اسم العلامة المعروض: **VeroSip** (يبقى بالحروف اللاتينية دائماً، حتى في الواجهة العربية). الحزمة (ثابتة): `com.hydroforce.pro` — الإصدار الحالي: **1.21.0** (`VERSION_CODE = 23`).
+> اسم العلامة المعروض: **VeroSip** (يبقى بالحروف اللاتينية دائماً، حتى في الواجهة العربية). الحزمة (ثابتة): `com.hydroforce.pro` — الإصدار الحالي: **1.24.0** (`VERSION_CODE = 26`).
 > `minSdk = 26` ، `targetSdk = 34` ، `compileSdk = 34` ، لغة Kotlin + Jetpack Compose (Material 3) ، الواجهة ثنائية اللغة (عربي/إنجليزي) وتدعم RTL والوضع الليلي (هوية Bio-Tech Aqua).
 
 ---
@@ -154,33 +154,19 @@ val interval = (awake / cups).coerceAtLeast(MIN_INTERVAL_MINUTES) // الحد ا
 - نافذة اليقظة من وقت الاستيقاظ حتى النوم (قد يتجاوز منتصف الليل)، **لا يُوضع أي تنبيه خارجها**.
 - `currentHydrationCycleStart(now, wakeMinutes)` (بداية دورة اليقظة — التقدم اليومي يُحسب منها لا من منتصف الليل، فلا يتصفّر لمن يسهر بعد 12)، `calendarDayStart` (يُستخدم الآن في الإحصائيات فقط)، `isWorkTime`, `mealPauseEnd` (نافذة 30 دق قبل الوجبة و45 دق بعدها).
 
-### 3.3 نظام التحقق بالكاميرا (CameraX + ML Kit)
+### 3.3 نظام التحقق بالكاميرا — VeroSip Vision Core (CameraX + بصمة + ML Kit)
 
-الملف: `camera/CameraVerificationScreen.kt`.
-- معاينة حية عبر `CameraX` (`Preview` + `ImageCapture` بوضع `CAPTURE_MODE_MINIMIZE_LATENCY`, الكاميرا الخلفية `DEFAULT_BACK_CAMERA`).
-- عند الالتقاط: تُحوّل الصورة إلى `Bitmap` في الذاكرة فقط، وتُحلّل عبر `ImageLabeling` الافتراضي من ML Kit، ثم **تُتلف فوراً** (`bitmap.recycle()`) — لا حفظ على التخزين ولا منتقي معرض/ملفات (قرار تصميمي للخصوصية).
-- **نسبة الثقة:**
-```kotlin
-const val CONFIDENCE_THRESHOLD = 0.65f
-ImageLabeling.getClient(
-    ImageLabelerOptions.Builder().setConfidenceThreshold(CONFIDENCE_THRESHOLD).build()
-)
-```
-- **الكلمات المفتاحية المقبولة** (يجب أن يطابقها تصنيف واحد على الأقل بثقة ≥ 0.65 — حُذفت `tableware` لمنع قبول الصحون الفارغة):
-```kotlin
-val ACCEPTED_LABELS = setOf(
-    "water", "bottle", "water bottle", "plastic bottle", "glass", "cup", "drink",
-    "liquid", "beverage", "drinkware", "mug", "pitcher", "tumbler"
-)
-```
-- **إضافات Sprint 1:** شريط اختيار كمية سريع فوق زر الالتقاط `[100, 200, 300, 400, 500]` مل (الافتراضي = كوب المستخدم)، وتُمرَّر الكمية المختارة عبر `onVerified(selectedAmountMl)`؛ زر تشغيل/إيقاف الفلاش (`camera.cameraControl.enableTorch`)؛ وإطار تركيز بزوايا شعار VeroSip باللون السيان `#00E5FF` يتحول أخضر `#00E676` عند النجاح.
-- منطق القرار:
-```kotlin
-val strong = labels.filter { it.confidence >= CONFIDENCE_THRESHOLD }
-val match  = strong.firstOrNull { it.text.lowercase() in ACCEPTED_LABELS }
-state = if (match != null) Verified(match.text) else Rejected(strong.take(4).map { it.text })
-```
-- عند النجاح: نغمة تأكيد (`ToneGenerator`) ثم استدعاء `onVerified()` (الذي يسجّل الشرب ويعيد ضبط المؤقت).
+الملفات: `camera/CameraVerificationScreen.kt` (الواجهة) + `camera/VeroSipVisionEngine.kt` (محرك القرار) + `camera/CupFingerprintMatcher.kt` (البصمة البصرية). مرجع كامل: [`tools/README_VISION.md`](tools/README_VISION.md).
+- معاينة حية عبر `CameraX` (`Preview` + `ImageCapture` بوضع `CAPTURE_MODE_MINIMIZE_LATENCY` + `ImageAnalysis` للمسح الحي، الكاميرا الخلفية `DEFAULT_BACK_CAMERA`). كل المعالجة في الذاكرة ثم `recycle()` — لا حفظ لأي صورة.
+- **قصّ المركز:** تُقصّ 60% الوسطى من الإطار قبل التحليل (`cropCenter`) لتجاهل خلفية الطاولة.
+- **محرك القرار المدمج** `VeroSipVisionEngine.decide()` بالترتيب:
+  1. **قائمة حظر** (طعام/صحون/سجائر/فيب/ولاعة/إلكترونيات) ≥ `0.38` → رفض فوري.
+  2. **المصدر (أ) بصمة أكواب المستخدم** (`CupFingerprintMatcher`): متجه بصري 64-قيمة (شبكة ألوان 4×4×3 + شبكة كثافة حواف 4×4) مُطبّع L2، مطابقة بتشابه جيب التمام ≥ `0.88`.
+  3. **المصدر (ب) نموذج TFLite اختياري** (`OptionalTfliteModel`): يُفعَّل تلقائياً فقط عند وجود `assets/verosip_vision.tflite`؛ بدونه يرجع `null` ولا يؤثر على البناء.
+  4. **المصدر (ج) ML Kit + حارس هندسي** (`passesGeometry`): كلمة شراب صريحة أو "glass" مشروطة بسياق سائل، ثم رفض الأجسام المسطّحة (حواف أفقية طاغية) والصغيرة/النحيلة.
+- **تعريف الكأس ⭐:** زر "+ تعريف كأسي/عبوتي" يلتقط إطاراً، يستخرج بصمته، يسمّيه (عبوة مياه/مطارة رياضية/كوب أعشاب) بالحجم المختار، ويحفظه في Room (`saved_cup_signatures`). يظهر لاحقاً "تم التعرف على: [الاسم] ⭐". إدارة/حذف عبر زر ⭐ أعلى الكاميرا.
+- **تأكيد يدوي دائماً:** لا تسجيل تلقائي؛ المستخدم يضغط "توثيق الشرب". HUD ثلاثي الحالات: مسح (قطرة زجاجية سماوية) / مُثبَّت (قطرة زرقاء ملكية `#003B99` + ✓ خضراء + إطار نابض) / مرفوض (إطار أحمر `#FF5252`). زر فلاش، شريط كمية `[100..500]`، وزر تعهّد بعد 3 محاولات فاشلة.
+- عند النجاح: نغمة تأكيد ثم `onVerified(amountMl, viaPromise)`.
 
 ---
 
@@ -234,11 +220,11 @@ state = if (match != null) Verified(match.text) else Rejected(strong.take(4).map
 3. **التنبيه الدقيق (Exact Alarm):** على Android 12+ يحتاج صلاحية؛ عند غيابها يسقط إلى تنبيه غير دقيق (`setAndAllowWhileIdle`) فتتأخر المواعيد.
 4. **بدء نشاط من الخلفية:** `AlarmService` يحاول فتح `AlarmVerifyActivity`؛ قد يُحجب على بعض الإصدارات، ويُعتمد حينها على `setFullScreenIntent`.
 5. **عكس الإشعار للساعة:** ساعات هواوي (HarmonyOS) تعكس **نص** الإشعار فقط عبر Huawei Health ولا تدعم **الأزرار التفاعلية** (تأجيل/توثيق) لتطبيقات أندرويد؛ التأجيل من المعصم يتطلب تطبيق ساعة أصلي (خارج النطاق الحالي). كما يتطلب تفعيل عكس الإشعارات يدوياً.
-6. **قاعدة البيانات Room:** الإصدار `version = 2` مع `MIGRATION_1_2` (أضاف `drinkType` و`effectiveMl`)؛ أي تغيير مستقبلي في المخطط يتطلب Migration للحفاظ على البيانات.
+6. **قاعدة البيانات Room:** الإصدار `version = 4` مع `MIGRATION_1_2` (أضاف `drinkType`/`effectiveMl`) و`MIGRATION_2_3` (جدول `bio_check_logs`) و`MIGRATION_3_4` (جدول `saved_cup_signatures`)؛ كلها إضافية تحافظ على البيانات. أي تغيير مستقبلي في المخطط يتطلب Migration.
 7. **التقدم اليومي** يُحتسب الآن من `currentHydrationCycleStart` (بداية دورة اليقظة) فلا يتصفّر عند منتصف الليل لمن يسهر؛ أما شاشة الإحصائيات فما زالت تجمّع «اليوم» حسب التقويم (`calendarDayStart`).
-8. **الكاميرا:** لا تُحفظ أي صورة (تحليل في الذاكرة فقط)؛ دقة التحقق تعتمد نموذج ML Kit العام وقائمة `ACCEPTED_LABELS` وعتبة 0.65 — قد تُرفض عبوات غير معتادة أو تُقبل أجسام مشابهة.
+8. **الكاميرا:** لا تُحفظ أي صورة (تحليل في الذاكرة فقط)؛ الدقة ترفعها بصمة أكواب المستخدم (المصدر أ) + الحارس الهندسي + قائمة الحظر، مع نموذج TFLite اختياري (المصدر ب) غير مُفعّل افتراضياً. أدق نتيجة تأتي من "تعريف الكأس ⭐".
 9. **التحديث الذاتي** يتطلب صلاحية «تثبيت تطبيقات من مصدر غير معروف» مرة واحدة، ويحمّل APK موقّعاً من GitHub Releases ويثبّته فوق الحالي (الحفاظ على البيانات مشروط ببقاء نفس مفتاح التوقيع عبر CI).
 
 ---
 
-*أُعدّ هذا التقرير آلياً من قراءة كود المشروع فعلياً، وحُدّث عند الإصدار 1.16.0 (VeroSip — Sprint 1).*
+*أُعدّ هذا التقرير آلياً من قراءة كود المشروع فعلياً، وحُدّث عند الإصدار 1.24.0 (VeroSip Vision Core).*

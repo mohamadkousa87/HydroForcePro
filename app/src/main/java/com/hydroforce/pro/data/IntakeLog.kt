@@ -38,6 +38,17 @@ data class BioCheckLog(
     val addedBonusMl: Int
 )
 
+/** A saved visual fingerprint of the user's own bottle/cup for fast on-device recognition. */
+@Entity(tableName = "saved_cup_signatures")
+data class SavedCupSignature(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val defaultVolumeMl: Int,
+    /** 64-value L2-normalized visual feature vector, comma-separated. */
+    val featureVectorCsv: String,
+    val createdAt: Long
+)
+
 @Dao
 interface IntakeDao {
     @Insert
@@ -82,9 +93,22 @@ interface IntakeDao {
 
     @Query("DELETE FROM bio_check_logs WHERE id = :id")
     suspend fun deleteBioCheck(id: Long)
+
+    // ----- Saved cup signatures -----
+    @Insert
+    suspend fun insertCupSignature(sig: SavedCupSignature): Long
+
+    @Query("SELECT * FROM saved_cup_signatures ORDER BY createdAt DESC")
+    fun cupSignaturesFlow(): Flow<List<SavedCupSignature>>
+
+    @Query("SELECT * FROM saved_cup_signatures")
+    suspend fun getAllCupSignatures(): List<SavedCupSignature>
+
+    @Query("DELETE FROM saved_cup_signatures WHERE id = :id")
+    suspend fun deleteCupSignature(id: Long)
 }
 
-@Database(entities = [IntakeLog::class, BioCheckLog::class], version = 3, exportSchema = false)
+@Database(entities = [IntakeLog::class, BioCheckLog::class, SavedCupSignature::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun intakeDao(): IntakeDao
 
@@ -114,13 +138,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the saved_cup_signatures table; existing data untouched. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS saved_cup_signatures (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "name TEXT NOT NULL, " +
+                        "defaultVolumeMl INTEGER NOT NULL, " +
+                        "featureVectorCsv TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "hydroforce.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
             }
     }
 }

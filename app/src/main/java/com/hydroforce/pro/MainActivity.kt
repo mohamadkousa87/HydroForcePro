@@ -117,6 +117,7 @@ private fun HydroNavHost(vm: MainViewModel) {
     val meetings by vm.meetings.collectAsStateWithLifecycle()
     val workoutActive by vm.workoutActive.collectAsStateWithLifecycle()
     val bioCount by vm.todayBioCount.collectAsStateWithLifecycle()
+    val savedCups by vm.savedCups.collectAsStateWithLifecycle()
     var permRefresh by remember { mutableIntStateOf(0) }
     val lang = LocalLanguage.current
 
@@ -291,6 +292,9 @@ private fun HydroNavHost(vm: MainViewModel) {
                     CameraVerificationScreen(
                         title = tr("شربت ماء الآن؟ وثّق ذلك 📷", "Drinking now? Verify it 📷"),
                         defaultAmountMl = profile.cupSizeMl,
+                        savedCups = savedCups,
+                        onRegisterCup = { name, volumeMl, sig -> vm.saveCupSignature(name, volumeMl, sig) },
+                        onDeleteCup = { vm.deleteCupSignature(it) },
                         onVerified = { amountMl, viaPromise ->
                             vm.onManualDrinkVerified(amountMl, viaPromise) {
                                 val msg = if (viaPromise) {
@@ -320,6 +324,9 @@ private fun HydroNavHost(vm: MainViewModel) {
                     CameraVerificationScreen(
                         title = tr("وثّق وجود مطارة الماء معك 🏋️", "Verify your water bottle is with you 🏋️"),
                         defaultAmountMl = profile.cupSizeMl,
+                        savedCups = savedCups,
+                        onRegisterCup = { name, volumeMl, sig -> vm.saveCupSignature(name, volumeMl, sig) },
+                        onDeleteCup = { vm.deleteCupSignature(it) },
                         onVerified = { _, _ ->
                             vm.startWorkout(duration) {
                                 Toast.makeText(context, tr(lang, "بدأ التمرين 🏋️ — رشفات كل 15 دقيقة", "Workout started 🏋️ — sips every 15 min"), Toast.LENGTH_LONG).show()
