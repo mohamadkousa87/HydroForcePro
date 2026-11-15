@@ -10,9 +10,11 @@
 الترتيب في [`VeroSipVisionEngine.kt`](../app/src/main/java/com/hydroforce/pro/camera/VeroSipVisionEngine.kt):
 
 1. **المصدر (أ) بصمة أكوابك المحفوظة** — [`CupFingerprintMatcher.kt`](../app/src/main/java/com/hydroforce/pro/camera/CupFingerprintMatcher.kt):
-   بصمة 64-قيمة (ألوان 4×4×3 + حواف 4×4). المطابقة **منفصلة للون والحواف**: يجب أن تتطابق
-   الحواف أولاً (`EDGE_FLOOR = 0.78`) ثم يتجاوز المجموع المرجّح **0.90**، **مع بوابة هندسية**
-   (`passesGeometry`) تمنع مطابقة حائط/بلاط/خلفية مسطّحة لمجرد تشابه اللون.
+   بصمة 64-قيمة من **قصّ عمودي ضيّق (36%×55%)** لجسم العبوة فقط. المطابقة **منفصلة للون والحواف**
+   (أرضية حواف `0.78` + مجموع `0.90`). ولا تُقبل البصمة إطلاقاً إلا مع:
+   - **بوابة هندسية** (`passesGeometry`)، و
+   - **بوابة وجود وعاء**: COCO يرصد حاوية، أو ML Kit يرصد كلمة وعاء/سائل بعتبة منخفضة `0.22`، و
+   - **نقض الأرضية/الجدار**: لو رصد ML Kit `floor/tile/wall/brick/carpet ≥ 0.45` بلا وعاء من COCO → تُرفض البصمة فوراً.
    > بعد هذا التحديث قد تحتاج **إعادة تعريف** أي كوب سجّلته سابقاً لضمان أفضل دقة.
 2. **المصدر (ب) كاشف الكائنات COCO (مُفعَّل ✅)** — [`OptionalTfliteModel`]:
    نموذج Google **SSD MobileNet v1 (quant, ~4MB)** في `app/src/main/assets/verosip_coco.tflite`

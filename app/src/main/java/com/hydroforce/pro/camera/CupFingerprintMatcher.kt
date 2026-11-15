@@ -20,11 +20,26 @@ object CupFingerprintMatcher {
     const val VECTOR_SIZE = 64        // 48 color (4x4x3) + 16 edge (4x4)
     private const val COLOR_SPLIT = 48 // indices [0,48) color, [48,64) edge
 
+    /**
+     * Tight vertical core (36% width × 55% height) of the already center-cropped frame. Bottles/cups
+     * are slim cylinders, so this keeps the container body and drops the side background (wall/tiles).
+     * Applied identically on register and on match, so signatures stay comparable.
+     */
+    private fun verticalCore(src: Bitmap): Bitmap {
+        val w = (src.width * 0.36f).toInt().coerceIn(1, src.width)
+        val h = (src.height * 0.55f).toInt().coerceIn(1, src.height)
+        val x = (src.width - w) / 2
+        val y = (src.height - h) / 2
+        return Bitmap.createBitmap(src, x, y, w, h)
+    }
+
     fun extractVisualSignature(centerCroppedBitmap: Bitmap): FloatArray {
-        val s = Bitmap.createScaledBitmap(centerCroppedBitmap, N, N, true)
+        val core = runCatching { verticalCore(centerCroppedBitmap) }.getOrDefault(centerCroppedBitmap)
+        val s = Bitmap.createScaledBitmap(core, N, N, true)
         val px = IntArray(N * N)
         s.getPixels(px, 0, N, 0, 0, N, N)
-        if (s !== centerCroppedBitmap) runCatching { s.recycle() }
+        if (s !== core) runCatching { s.recycle() }
+        if (core !== centerCroppedBitmap) runCatching { core.recycle() }
 
         val gray = FloatArray(N * N)
         for (i in px.indices) {

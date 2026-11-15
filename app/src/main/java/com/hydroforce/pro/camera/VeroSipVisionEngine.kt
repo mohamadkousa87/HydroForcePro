@@ -40,9 +40,25 @@ object VeroSipVisionEngine {
     val DIRECT_DRINK_LABELS = setOf(
         "water bottle", "plastic bottle", "bottle", "cup", "mug", "teacup", "coffee cup", "coffeecup",
         "drinking glass", "tumbler", "pitcher", "teapot", "water", "mineral water", "drink", "beverage",
-        "tea", "coffee", "jug", "flask", "soft drink", "juice"
+        "tea", "coffee", "jug", "flask", "soft drink", "juice",
+        "milk", "dairy", "dairy product", "yogurt", "ayran"
     )
     const val DRINK_THRESHOLD = 0.45f
+
+    /**
+     * Low-threshold "is there any container/liquid here at all?" gate. A saved fingerprint (Source A)
+     * is only trusted when at least one of these shows up in the frame — a bare wall/floor won't.
+     */
+    val OBJECTNESS_LABELS = setOf(
+        "bottle", "water bottle", "plastic bottle", "cup", "mug", "glass", "drinking glass",
+        "tableware", "drinkware", "liquid", "fluid", "water", "drink", "beverage", "milk", "dairy",
+        "jug", "tumbler", "pitcher", "cylinder", "container", "plastic", "glassware"
+    )
+    const val OBJECTNESS_THRESHOLD = 0.22f
+
+    /** Explicit floor/wall words → veto a fingerprint match when no real container is detected. */
+    val FLOOR_WALL_LABELS = setOf("floor", "flooring", "tile", "wall", "brick", "carpet")
+    const val FLOOR_WALL_THRESHOLD = 0.45f
 
     /** "glass"/"drinkware" only count WITH a liquid/drink word present. */
     val CONDITIONAL_GLASS = setOf("glass", "drinkware")
@@ -132,15 +148,23 @@ object VeroSipVisionEngine {
         tflite: OptionalTfliteModel?
     ): Decision {
         val geoOk = passesGeometry(bitmap)
+        val coco = tflite?.detect(bitmap) // computed once, reused by Source A gate and Source B
+        val cocoAccept = coco is OptionalTfliteModel.CocoResult.Accept
 
-        // Source A: user's saved fingerprint, gated by geometry (kills background false-matches).
-        if (geoOk) {
+        val lower = labels.map { it.first.lowercase() to it.second }
+        val mlObjectness = lower.any { it.first in OBJECTNESS_LABELS && it.second >= OBJECTNESS_THRESHOLD }
+        val floorWall = lower.any { it.first in FLOOR_WALL_LABELS && it.second >= FLOOR_WALL_THRESHOLD }
+
+        // Source A: saved fingerprint — trusted ONLY when (a) geometry passes, (b) something looks like
+        // a container/liquid (COCO accept or ML Kit objectness), and (c) it's not an explicit floor/wall.
+        val objectnessOk = geoOk && (cocoAccept || mlObjectness) && !(floorWall && !cocoAccept)
+        if (objectnessOk) {
             CupFingerprintMatcher.findBestMatch(bitmap, savedCups)?.let {
                 return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
             }
         }
         // Source B: COCO object detector (active only when assets/verosip_coco.tflite is present).
-        when (val coco = tflite?.detect(bitmap)) {
+        when (coco) {
             is OptionalTfliteModel.CocoResult.Reject ->
                 return Decision(locked = false, rejected = true, label = coco.label, savedName = null)
             is OptionalTfliteModel.CocoResult.Accept ->
