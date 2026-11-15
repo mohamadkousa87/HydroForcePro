@@ -17,15 +17,24 @@ import kotlin.math.abs
  */
 object VeroSipVisionEngine {
 
-    /** Instant reject (food / smoking / electronics) at >= [BLACKLIST_THRESHOLD]. */
-    val BLACKLIST_LABELS = setOf(
-        "food", "fruit", "vegetable", "carrot", "meal", "dish", "plate", "salad", "snack", "bread",
-        "meat", "pasta", "rice", "produce", "cuisine", "baked goods", "fast food", "dessert", "bowl",
+    /**
+     * Hard block (smoking / electronics / toiletries) at >= [HARD_BLOCK_THRESHOLD]. Food is handled
+     * by the precise COCO detector instead — ML Kit's generic "food" label misfires on clear water
+     * glasses, so it is NOT here.
+     */
+    val HARD_BLOCK_LABELS = setOf(
         "cigarette", "electronic cigarette", "vape", "tobacco", "ashtray", "lighter", "smoke", "smoking",
         "electronic device", "gadget", "mobile phone", "telephone", "remote", "mouse", "keyboard",
         "cosmetics", "perfume", "toy", "tool"
     )
-    const val BLACKLIST_THRESHOLD = 0.38f
+    const val HARD_BLOCK_THRESHOLD = 0.40f
+
+    /** Food words that only block at HIGH confidence (so a water glass labeled "food 42%" survives). */
+    val SOFT_FOOD_LABELS = setOf(
+        "food", "fruit", "vegetable", "carrot", "meal", "dish", "plate", "salad", "snack", "bread",
+        "meat", "pasta", "rice", "produce", "cuisine", "baked goods", "fast food", "dessert", "bowl", "pizza"
+    )
+    const val SOFT_FOOD_THRESHOLD = 0.62f
 
     /** Explicit drink/container words accepted directly at >= [DRINK_THRESHOLD]. */
     val DIRECT_DRINK_LABELS = setOf(
@@ -40,7 +49,7 @@ object VeroSipVisionEngine {
     val LIQUID_CONTEXT = setOf("liquid", "water", "fluid", "drink", "beverage", "cup", "bottle", "aqua")
     const val CONTEXT_THRESHOLD = 0.30f
 
-    private val RELEVANT = DIRECT_DRINK_LABELS + CONDITIONAL_GLASS + LIQUID_CONTEXT + BLACKLIST_LABELS
+    private val RELEVANT = DIRECT_DRINK_LABELS + CONDITIONAL_GLASS + LIQUID_CONTEXT + HARD_BLOCK_LABELS + SOFT_FOOD_LABELS
 
     /** Outcome of the merged decision. */
     data class Decision(
@@ -50,8 +59,12 @@ object VeroSipVisionEngine {
         val savedName: String?
     )
 
-    fun blacklisted(labels: List<Pair<String, Float>>): Boolean =
-        labels.any { it.first.lowercase() in BLACKLIST_LABELS && it.second >= BLACKLIST_THRESHOLD }
+    fun hardBlocked(labels: List<Pair<String, Float>>): Boolean =
+        labels.any {
+            val l = it.first.lowercase()
+            (l in HARD_BLOCK_LABELS && it.second >= HARD_BLOCK_THRESHOLD) ||
+                (l in SOFT_FOOD_LABELS && it.second >= SOFT_FOOD_THRESHOLD)
+        }
 
     /** ML Kit source (ج): a direct drink word, or conditional glass paired with a liquid word. */
     fun mlDrinkLabel(labels: List<Pair<String, Float>>): String? {
@@ -105,8 +118,12 @@ object VeroSipVisionEngine {
     }
 
     /**
-     * Merged decision: blacklist first, then (A) saved fingerprint, (B) COCO TFLite detector,
-     * (C) ML Kit drink rule guarded by geometry.
+     * Merged decision, in order:
+     *  A) saved fingerprint — but ONLY when the frame has real container structure (geometry), so a
+     *     plain wall/floor that shares a color can never false-lock;
+     *  B) COCO detector — precise accept (bottle/cup/wine glass) or reject (bowl/phone/food);
+     *  C) hard block (smoking/electronics, or food at high confidence);
+     *  D) ML Kit drink rule guarded by geometry.
      */
     fun decide(
         bitmap: Bitmap,
@@ -114,11 +131,13 @@ object VeroSipVisionEngine {
         savedCups: List<SavedCupSignature>,
         tflite: OptionalTfliteModel?
     ): Decision {
-        if (blacklisted(labels)) return Decision(locked = false, rejected = true, label = "", savedName = null)
+        val geoOk = passesGeometry(bitmap)
 
-        // Source A: the user's saved cup/bottle fingerprint (strongest — learned from their own items).
-        CupFingerprintMatcher.findBestMatch(bitmap, savedCups)?.let {
-            return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
+        // Source A: user's saved fingerprint, gated by geometry (kills background false-matches).
+        if (geoOk) {
+            CupFingerprintMatcher.findBestMatch(bitmap, savedCups)?.let {
+                return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
+            }
         }
         // Source B: COCO object detector (active only when assets/verosip_coco.tflite is present).
         when (val coco = tflite?.detect(bitmap)) {
@@ -128,9 +147,12 @@ object VeroSipVisionEngine {
                 return Decision(locked = true, rejected = false, label = coco.label, savedName = null)
             else -> {}
         }
-        // Source C: ML Kit explicit rule + geometric guard.
+        // Hard block: smoking/electronics, or food at high confidence (COCO already handled clear food).
+        if (hardBlocked(labels)) return Decision(locked = false, rejected = true, label = "", savedName = null)
+
+        // Source C: ML Kit explicit drink rule + geometric guard.
         val ml = mlDrinkLabel(labels)
-        if (ml != null && passesGeometry(bitmap)) {
+        if (ml != null && geoOk) {
             return Decision(locked = true, rejected = false, label = ml, savedName = null)
         }
         return Decision(locked = false, rejected = false, label = "", savedName = null)
@@ -158,7 +180,7 @@ class OptionalTfliteModel(context: Context) {
 
     /** Container classes accepted when the box isn't plate-flat. */
     private val acceptLabels = setOf("bottle", "cup", "wine glass")
-    private val acceptThreshold = 0.45f
+    private val acceptThreshold = 0.35f // lowered to help faint transparent glasses
     private val minBoxAspect = 0.65f // boxHeight / boxWidth — plates are far wider than tall.
 
     /** COCO classes that mean "this is not a drink" → instant reject. */

@@ -12,9 +12,13 @@ import kotlin.math.sqrt
  */
 object CupFingerprintMatcher {
 
-    const val MATCH_THRESHOLD = 0.88f
+    /** Combined (color+edge) similarity needed to count as a match. */
+    const val MATCH_THRESHOLD = 0.90f
+    /** The edge/structure block MUST match this much — kills flat backgrounds (wall/floor/tiles). */
+    private const val EDGE_FLOOR = 0.78f
     private const val N = 32          // working resolution
     const val VECTOR_SIZE = 64        // 48 color (4x4x3) + 16 edge (4x4)
+    private const val COLOR_SPLIT = 48 // indices [0,48) color, [48,64) edge
 
     fun extractVisualSignature(centerCroppedBitmap: Bitmap): FloatArray {
         val s = Bitmap.createScaledBitmap(centerCroppedBitmap, N, N, true)
@@ -76,24 +80,37 @@ object CupFingerprintMatcher {
     fun parse(csv: String): FloatArray =
         csv.split(",").mapNotNull { it.trim().toFloatOrNull() }.toFloatArray()
 
-    /** Cosine similarity of two L2-normalized vectors = their dot product. */
-    private fun cosine(a: FloatArray, b: FloatArray): Float {
-        if (a.size != b.size || a.isEmpty()) return 0f
-        var dot = 0f
-        for (i in a.indices) dot += a[i] * b[i]
-        return dot
+    /**
+     * Cosine similarity over a sub-range, re-normalizing each block independently. This makes color
+     * and edges weigh equally regardless of how the stored vector was normalized (so old saved
+     * signatures stay compatible), and returns 0 for a near-flat block (no structure to compare).
+     */
+    private fun blockCosine(a: FloatArray, b: FloatArray, from: Int, to: Int): Float {
+        var na = 0f; var nb = 0f; var dot = 0f
+        for (i in from until to) { na += a[i] * a[i]; nb += b[i] * b[i]; dot += a[i] * b[i] }
+        if (na < 1e-8f || nb < 1e-8f) return 0f
+        return dot / (sqrt(na) * sqrt(nb))
     }
 
-    /** Best saved cup whose cosine similarity to [bitmap] clears [MATCH_THRESHOLD], or null. */
+    /**
+     * Best saved cup whose COMBINED color+edge similarity clears [MATCH_THRESHOLD]. The edge block
+     * must also clear [EDGE_FLOOR], so a plain wall/floor that merely shares a color can't match a
+     * container that has real structure.
+     */
     fun findBestMatch(bitmap: Bitmap, savedCups: List<SavedCupSignature>): SavedCupSignature? {
         if (savedCups.isEmpty()) return null
         val sig = extractVisualSignature(bitmap)
         var best: SavedCupSignature? = null
         var bestScore = MATCH_THRESHOLD
         for (cup in savedCups) {
-            val score = cosine(sig, parse(cup.featureVectorCsv))
-            if (score >= bestScore) {
-                bestScore = score
+            val v = parse(cup.featureVectorCsv)
+            if (v.size != sig.size) continue
+            val edgeCos = blockCosine(sig, v, COLOR_SPLIT, sig.size)
+            if (edgeCos < EDGE_FLOOR) continue // structure mismatch → skip (background guard)
+            val colorCos = blockCosine(sig, v, 0, COLOR_SPLIT)
+            val combined = 0.5f * colorCos + 0.5f * edgeCos
+            if (combined >= bestScore) {
+                bestScore = combined
                 best = cup
             }
         }
