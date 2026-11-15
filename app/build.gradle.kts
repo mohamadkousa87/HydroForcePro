@@ -68,6 +68,10 @@ android {
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
+    // Keep the TFLite model uncompressed so it can be memory-mapped at runtime.
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -96,6 +100,9 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraX")
 
     implementation("com.google.mlkit:image-labeling:17.0.8")
+
+    // Lightweight on-device TFLite runtime for the optional COCO object detector (Vision Source B).
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 

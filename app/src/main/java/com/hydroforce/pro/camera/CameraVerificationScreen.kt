@@ -54,6 +54,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -393,22 +394,25 @@ private fun CameraContent(
     // ---- Dialogs ----
     if (showRegister) {
         var chosenName by remember { mutableStateOf("") }
+        var customName by remember { mutableStateOf("") }
         val options = listOf(
             tr("عبوة مياه", "Water bottle"),
-            tr("مطارتي الرياضية", "My gym flask"),
-            tr("كوب أعشاب/مكتب", "Herbal/desk cup")
+            tr("مطارة", "Flask"),
+            tr("كوب أعشاب", "Herbal cup")
         )
+        // Custom text takes priority over a chip when the user typed something.
+        val finalName = customName.trim().ifBlank { chosenName }
         AlertDialog(
             onDismissRequest = { showRegister = false; pendingSignature = null },
             confirmButton = {
                 TextButton(
-                    enabled = chosenName.isNotBlank() && pendingSignature != null,
+                    enabled = finalName.isNotBlank() && pendingSignature != null,
                     onClick = {
-                        pendingSignature?.let { onRegisterCup(chosenName, selectedAmount, it) }
+                        pendingSignature?.let { onRegisterCup(finalName, selectedAmount, it) }
                         showRegister = false
                         pendingSignature = null
                         overrideVerify = false
-                        state = VerifyState.Verified(chosenName)
+                        state = VerifyState.Verified(finalName)
                     }
                 ) { Text(tr("حفظ وتوثيق ✓", "Save & verify ✓")) }
             },
@@ -416,10 +420,22 @@ private fun CameraContent(
             title = { Text(tr("تعريف كأسي/عبوتي ⭐", "Register my cup/bottle ⭐")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("اختر اسماً (الحجم: $selectedAmount مل):", "Pick a name (volume: $selectedAmount ml):"))
+                    Text(tr("اختر اسماً سريعاً (الحجم: $selectedAmount مل):", "Pick a quick name (volume: $selectedAmount ml):"))
                     options.forEach { opt ->
-                        FilterChip(selected = chosenName == opt, onClick = { chosenName = opt }, label = { Text(opt) })
+                        FilterChip(
+                            selected = chosenName == opt && customName.isBlank(),
+                            onClick = { chosenName = opt; customName = "" },
+                            label = { Text(opt) }
+                        )
                     }
+                    OutlinedTextField(
+                        value = customName,
+                        onValueChange = { customName = it },
+                        singleLine = true,
+                        label = { Text(tr("أو اكتب اسماً مخصصاً (اختياري)", "Or type a custom name (optional)")) },
+                        placeholder = { Text(tr("مثال: كوب المكتب", "e.g. Office mug")) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         )

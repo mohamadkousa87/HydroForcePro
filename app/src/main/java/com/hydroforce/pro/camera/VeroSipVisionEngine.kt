@@ -3,11 +3,17 @@ package com.hydroforce.pro.camera
 import android.content.Context
 import android.graphics.Bitmap
 import com.hydroforce.pro.data.SavedCupSignature
+import org.tensorflow.lite.Interpreter
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
 import kotlin.math.abs
 
 /**
  * Central vision decision engine. Combines a hard blacklist, a geometric shape guard, and three
- * acceptance sources (saved fingerprint / optional TFLite model / ML Kit rules) into one result.
+ * acceptance sources (saved fingerprint / COCO TFLite detector / ML Kit rules) into one result.
  */
 object VeroSipVisionEngine {
 
@@ -99,7 +105,7 @@ object VeroSipVisionEngine {
     }
 
     /**
-     * Merged decision: blacklist first, then (A) saved fingerprint, (B) optional TFLite model,
+     * Merged decision: blacklist first, then (A) saved fingerprint, (B) COCO TFLite detector,
      * (C) ML Kit drink rule guarded by geometry.
      */
     fun decide(
@@ -110,13 +116,17 @@ object VeroSipVisionEngine {
     ): Decision {
         if (blacklisted(labels)) return Decision(locked = false, rejected = true, label = "", savedName = null)
 
-        // Source A: the user's saved cup/bottle fingerprint.
+        // Source A: the user's saved cup/bottle fingerprint (strongest — learned from their own items).
         CupFingerprintMatcher.findBestMatch(bitmap, savedCups)?.let {
             return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
         }
-        // Source B: optional on-device TFLite model (active only when assets/verosip_vision.tflite exists).
-        tflite?.classify(bitmap)?.let { cls ->
-            if (cls != "negative_reject") return Decision(locked = true, rejected = false, label = cls, savedName = null)
+        // Source B: COCO object detector (active only when assets/verosip_coco.tflite is present).
+        when (val coco = tflite?.detect(bitmap)) {
+            is OptionalTfliteModel.CocoResult.Reject ->
+                return Decision(locked = false, rejected = true, label = coco.label, savedName = null)
+            is OptionalTfliteModel.CocoResult.Accept ->
+                return Decision(locked = true, rejected = false, label = coco.label, savedName = null)
+            else -> {}
         }
         // Source C: ML Kit explicit rule + geometric guard.
         val ml = mlDrinkLabel(labels)
@@ -128,15 +138,97 @@ object VeroSipVisionEngine {
 }
 
 /**
- * Optional custom model reader. It auto-detects assets/verosip_vision.tflite; actual inference is
- * enabled once the TensorFlow Lite runtime dependency is added (see tools/README_VISION.md). Until
- * then [classify] returns null so the app relies on saved fingerprints + ML Kit (build stays lean).
+ * On-device COCO object detector (SSD MobileNet v1, quantized). Auto-activates when
+ * assets/verosip_coco.tflite + assets/labelmap.txt are present; if the model is missing or the
+ * runtime can't load it, [detect] safely returns [CocoResult.None] and the app falls back to
+ * saved fingerprints + ML Kit. See tools/README_VISION.md.
  */
 class OptionalTfliteModel(context: Context) {
+
+    sealed interface CocoResult {
+        data class Accept(val label: String) : CocoResult
+        data class Reject(val label: String) : CocoResult
+        data object None : CocoResult
+    }
+
+    private val inputSize = 300
+    private val maxDetections = 10
+    private var interpreter: Interpreter? = null
+    private var labels: List<String> = emptyList()
+
+    /** Container classes accepted when the box isn't plate-flat. */
+    private val acceptLabels = setOf("bottle", "cup", "wine glass")
+    private val acceptThreshold = 0.45f
+    private val minBoxAspect = 0.65f // boxHeight / boxWidth — plates are far wider than tall.
+
+    /** COCO classes that mean "this is not a drink" → instant reject. */
+    private val rejectLabels = setOf(
+        "bowl", "cell phone", "remote", "banana", "apple", "sandwich", "orange",
+        "broccoli", "carrot", "hot dog", "pizza", "donut", "cake"
+    )
+    private val rejectThreshold = 0.40f
+
     val isAvailable: Boolean = runCatching {
-        context.assets.list("")?.any { it.equals("verosip_vision.tflite", ignoreCase = true) } == true
+        labels = context.assets.open("labelmap.txt").bufferedReader().use { it.readLines() }.map { it.trim() }
+        val model = loadModelFile(context, "verosip_coco.tflite")
+        interpreter = Interpreter(model, Interpreter.Options().apply { setNumThreads(2) })
+        true
     }.getOrDefault(false)
 
-    @Suppress("UNUSED_PARAMETER")
-    fun classify(bitmap: Bitmap): String? = null
+    private fun loadModelFile(context: Context, name: String): MappedByteBuffer {
+        val afd = context.assets.openFd(name)
+        FileInputStream(afd.fileDescriptor).use { fis ->
+            return fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
+        }
+    }
+
+    /** Runs object detection on the center-cropped frame and applies accept/reject rules. */
+    fun detect(bitmap: Bitmap): CocoResult {
+        val itp = interpreter ?: return CocoResult.None
+        val input = runCatching { buildInput(bitmap) }.getOrNull() ?: return CocoResult.None
+
+        // SSD MobileNet v1 outputs: locations, classes, scores, count.
+        val locations = Array(1) { Array(maxDetections) { FloatArray(4) } } // ymin,xmin,ymax,xmax
+        val classes = Array(1) { FloatArray(maxDetections) }
+        val scores = Array(1) { FloatArray(maxDetections) }
+        val count = FloatArray(1)
+        val outputs = mapOf(0 to locations, 1 to classes, 2 to scores, 3 to count)
+
+        runCatching { itp.runForMultipleInputsOutputs(arrayOf<Any>(input), outputs) }
+            .getOrElse { return CocoResult.None }
+
+        var accept: String? = null
+        val n = count[0].toInt().coerceIn(0, maxDetections)
+        for (i in 0 until n) {
+            val score = scores[0][i]
+            if (score <= 0f) continue
+            val idx = classes[0][i].toInt()
+            val label = labels.getOrNull(idx)?.lowercase() ?: continue
+            if (label == "???") continue
+            // Reject wins over accept (immediate), per spec.
+            if (label in rejectLabels && score >= rejectThreshold) return CocoResult.Reject(label)
+            if (accept == null && label in acceptLabels && score >= acceptThreshold) {
+                val box = locations[0][i]
+                val h = box[2] - box[0]
+                val w = box[3] - box[1]
+                if (w > 1e-4f && h / w >= minBoxAspect) accept = label
+            }
+        }
+        return accept?.let { CocoResult.Accept(it) } ?: CocoResult.None
+    }
+
+    private fun buildInput(bitmap: Bitmap): ByteBuffer {
+        val scaled = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
+        val buf = ByteBuffer.allocateDirect(inputSize * inputSize * 3).order(ByteOrder.nativeOrder())
+        val px = IntArray(inputSize * inputSize)
+        scaled.getPixels(px, 0, inputSize, 0, 0, inputSize, inputSize)
+        if (scaled !== bitmap) runCatching { scaled.recycle() }
+        for (p in px) {
+            buf.put(((p shr 16) and 0xFF).toByte()) // R
+            buf.put(((p shr 8) and 0xFF).toByte())  // G
+            buf.put((p and 0xFF).toByte())          // B
+        }
+        buf.rewind()
+        return buf
+    }
 }
