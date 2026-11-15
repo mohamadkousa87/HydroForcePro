@@ -60,7 +60,15 @@ class SettingsRepository(context: Context) {
         val WORKOUT_BONUS_ML = intPreferencesKey("workout_bonus_ml")
         val WORKOUT_BONUS_CYCLE = longPreferencesKey("workout_bonus_cycle")
         val FASTING_ACTIVATED_CYCLE = longPreferencesKey("fasting_activated_cycle")
+        // Optional Cloud AI (BYOK) — stored locally only, never uploaded by the app itself.
+        val CLOUD_AI_ENABLED = booleanPreferencesKey("cloud_ai_enabled")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
     }
+
+    val cloudAiEnabled: Flow<Boolean> = store.data.map { it[Keys.CLOUD_AI_ENABLED] ?: false }
+    val geminiApiKey: Flow<String> = store.data.map { it[Keys.GEMINI_API_KEY] ?: "" }
+    suspend fun setCloudAiEnabled(enabled: Boolean) { store.edit { it[Keys.CLOUD_AI_ENABLED] = enabled } }
+    suspend fun setGeminiApiKey(key: String) { store.edit { it[Keys.GEMINI_API_KEY] = key.trim() } }
 
     val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
         prefs[Keys.THEME_MODE]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM

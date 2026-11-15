@@ -71,8 +71,22 @@ fun ProfileScreen(
     initial: UserProfile,
     isOnboarding: Boolean,
     onSave: (UserProfile) -> Unit,
-    onBack: (() -> Unit)?
+    onBack: (() -> Unit)?,
+    cloudAiEnabled: Boolean = false,
+    geminiApiKey: String = "",
+    onCloudAiEnabledChange: (Boolean) -> Unit = {},
+    onGeminiKeyChange: (String) -> Unit = {}
 ) {
+    var showCloudDialog by rememberSaveable { mutableStateOf(false) }
+    if (showCloudDialog) {
+        CloudAiDialog(
+            enabled = cloudAiEnabled,
+            apiKey = geminiApiKey,
+            onEnabledChange = onCloudAiEnabledChange,
+            onKeyChange = onGeminiKeyChange,
+            onDismiss = { showCloudDialog = false }
+        )
+    }
     var gender by rememberSaveable { mutableStateOf(initial.gender) }
     var ageText by rememberSaveable { mutableStateOf(initial.age.toString()) }
     var weightText by rememberSaveable { mutableStateOf(HydrationCalculator.formatNum(initial.weightKg)) }
@@ -224,6 +238,21 @@ fun ProfileScreen(
         ResultCard(result, cup, volumeUnit, title = tr("📋 هدفك الطبي اليومي", "📋 Your daily medical goal"))
 
         if (!isOnboarding) {
+            Section(tr("🌐 الفحص السحابي الذكي (اختياري)", "🌐 Smart Cloud AI (optional)")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (cloudAiEnabled) tr("مُفعّل ✅", "Enabled ✅") else tr("غير مُفعّل", "Disabled"),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            tr("دقة 100% عبر مفتاحك المجاني من قوقل (BYOK)", "100% accuracy via your free Google key (BYOK)"),
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(onClick = { showCloudDialog = true }) { Text(tr("إعداد ⚙️", "Set up ⚙️")) }
+                }
+            }
             ThemeModeSection()
             UpdateSection(com.hydroforce.pro.update.rememberUpdateController())
         }

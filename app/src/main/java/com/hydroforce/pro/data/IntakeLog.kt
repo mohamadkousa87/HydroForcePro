@@ -38,15 +38,19 @@ data class BioCheckLog(
     val addedBonusMl: Int
 )
 
-/** A saved visual fingerprint of the user's own bottle/cup for fast on-device recognition. */
+/** A saved favorite cup/bottle for fast, reliable on-device recognition (by barcode/label text). */
 @Entity(tableName = "saved_cup_signatures")
 data class SavedCupSignature(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val defaultVolumeMl: Int,
-    /** 64-value L2-normalized visual feature vector, comma-separated. */
-    val featureVectorCsv: String,
-    val createdAt: Long
+    /** Legacy color/edge fingerprint (no longer used for matching); kept for data safety. */
+    val featureVectorCsv: String = "",
+    val createdAt: Long,
+    /** DrinkType.name for this favorite (WATER / MILK / LABAN / HERBAL …). */
+    val drinkTypeName: String = DrinkType.WATER.name,
+    /** Barcode number, or a printed label keyword, captured when the cup was registered. */
+    val barcodeOrKeyword: String = ""
 )
 
 @Dao
@@ -108,7 +112,7 @@ interface IntakeDao {
     suspend fun deleteCupSignature(id: Long)
 }
 
-@Database(entities = [IntakeLog::class, BioCheckLog::class, SavedCupSignature::class], version = 4, exportSchema = false)
+@Database(entities = [IntakeLog::class, BioCheckLog::class, SavedCupSignature::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun intakeDao(): IntakeDao
 
@@ -152,13 +156,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds drink type + barcode/keyword columns to saved cups; existing data untouched. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_cup_signatures ADD COLUMN drinkTypeName TEXT NOT NULL DEFAULT 'WATER'")
+                db.execSQL("ALTER TABLE saved_cup_signatures ADD COLUMN barcodeOrKeyword TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "hydroforce.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
             }
     }
 }

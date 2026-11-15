@@ -1,55 +1,49 @@
 # VeroSip Vision Core
 
-نظام التعرّف الذكي على الكأس/العبوة في VeroSip. يعمل بالكامل **على الجهاز** دون إنترنت
-ودون تخزين أي صورة. يجمع ثلاثة مصادر قرار مع حارسٍ هندسي وقائمة حظر.
+نظام تعرّف **سلس ومريح** على الكأس/العبوة في VeroSip. يعمل بالكامل **على الجهاز** دون إنترنت
+ودون تخزين أي صورة (مع فحص سحابي اختياري BYOK). لا بصمة ألوان ولا بوابات هندسية صارمة — فتلك
+كانت ترفض العبوات والكاسات الشفافة وتطابق الخلفية.
 
 > **VeroSip** always written in Latin letters.
 
 ## كيف يتخذ المحرك القرار (`VeroSipVisionEngine.decide`)
 
-الترتيب في [`VeroSipVisionEngine.kt`](../app/src/main/java/com/hydroforce/pro/camera/VeroSipVisionEngine.kt):
+يُقبل الإطار (أخضر) بمجرد أي مؤشر مشروب/وعاء. الترتيب في
+[`VeroSipVisionEngine.kt`](../app/src/main/java/com/hydroforce/pro/camera/VeroSipVisionEngine.kt):
 
-0. **قارئ OCR للملصقات** — [`VeroSipOcr.kt`](../app/src/main/java/com/hydroforce/pro/camera/VeroSipOcr.kt):
-   يقرأ نص الملصق على الجهاز (بدون إنترنت) عبر `com.google.mlkit:text-recognition`. كلمة شراب
-   (water/milk/laban/ayran/juice/…ml) → **قبول فوري** مع "تم قراءة ملصق العبوة: X ✓"؛ كلمة تدخين
-   (nicotine/vape/tobacco…) → **رفض فوري**. يعمل على خيط خلفي (لا يُعلّق الواجهة)، وبتبريد ~1.2ث حياً.
-1. **المصدر (أ) بصمة أكوابك المحفوظة** — [`CupFingerprintMatcher.kt`](../app/src/main/java/com/hydroforce/pro/camera/CupFingerprintMatcher.kt):
-   بصمة 64-قيمة من **قصّ عمودي ضيّق (36%×55%)** لجسم العبوة. المطابقة **منفصلة للون والحواف**
-   (أرضية حواف `0.78` + مجموع `0.90`). ولا تُقبل البصمة إطلاقاً إلا مع:
-   - **بوابة هندسية** (`passesGeometry`)، و
-   - **فحص تباين القلب/المحيط** (`hasDistinctForeground`): يرفض الخلفية المتصلة والزجاج الشفاف الذي يمرّر الخلفية، و
-   - **بوابة مجسّم صارمة**: كائن COCO حقيقي (bottle/cup/wine glass) أو كلمة وعاء من ML Kit **≥ 0.45**.
-   > بمجرد إزالة الكأس أمام الخلفية يختفي شرط المجسّم فتتوقف البصمة فوراً — لا مطابقة للبلاط/الخلفية.
-   > بعد هذا التحديث **احذف وأعد تعريف** أي كوب سجّلته سابقاً.
-2. **المصدر (ب) كاشف الكائنات COCO (مُفعَّل ✅)** — [`OptionalTfliteModel`]:
-   نموذج Google **SSD MobileNet v1 (quant, ~4MB)** في `app/src/main/assets/verosip_coco.tflite`
-   مع `labelmap.txt`. يرصد الكائنات مع صناديق أبعادها (BoundingBox) ويطبّق:
-   - **قبول:** `bottle` / `cup` / `wine glass` بثقة ≥ 0.35 **وبشرط** أن الصندوق ليس مسطحاً كالصحن
-     (الارتفاع/العرض ≥ 0.65).
-   - **رفض فوري:** `bowl`, `cell phone`, `remote` (غالباً الفيب/الولاعة), `banana`, `apple`,
-     `sandwich`, `orange`, `broccoli`, `carrot`, `hot dog`, `pizza`, `donut`, `cake` بثقة ≥ 0.40.
-   إن غاب الملف أو تعذّر تحميله، يرجع `None` بأمان ويعتمد التطبيق على (أ) + (ج).
-3. **الحظر الصلب:** تدخين/إلكترونيات ≥ 0.40، أو **طعام صلب** (خضار/لحم/خبز/صحن/بيتزا…) ≥ 0.62.
-   **"food"/"ingredient"/"natural foods" لا تُحظر أبداً** لأن جوجل يصنّف الحليب/اللبن/العصير كـ Food 85%.
-   كلمات الشراب تشمل الآن `milk/dairy/ayran/yogurt/juice/carton/…`، وعبوة `packaged goods` تُقبل
-   عند اقترانها بسياق شراب (bottle/plastic/milk/liquid…).
-4. **المصدر (ج) ML Kit + الحارس الهندسي:** كلمة شراب صريحة (زجاجة/كوب/ماء…)، أو "glass"
-   مشروطة بوجود سياق سائل، **ثم** `passesGeometry` يرفض الأجسام المسطّحة (صحون/منافض:
-   الحواف الأفقية تطغى) والصغيرة/النحيلة (ولاعة/فيب لا تملأ الإطار).
+1. **رفض OCR** — [`VeroSipOcr.kt`](../app/src/main/java/com/hydroforce/pro/camera/VeroSipOcr.kt):
+   كلمة تدخين (nicotine/vape/tobacco…) على الملصق → **رفض فوري**.
+2. **عبوة محفوظة ⭐:** تطابق **باركود** العبوة أو كلمتها المخزّنة → "تم التعرف على عبوتك: [الاسم] ⭐".
+3. **أي باركود** في الإطار ([`VeroSipBarcode.kt`](../app/src/main/java/com/hydroforce/pro/camera/VeroSipBarcode.kt), `com.google.mlkit:barcode-scanning`) → قبول (منتج معبّأ).
+4. **كلمة شراب على الملصق (OCR):** water/aqua/milk/laban/ayran/juice/…ml → قبول مع "تم قراءة ملصق العبوة: X ✓".
+5. **كاشف COCO** (`OptionalTfliteModel`, SSD MobileNet v1 quant) يرصد `bottle`/`cup`/`wine glass` → قبول.
+6. **تلميح ML Kit** من `ACCEPT_HINTS` (قائمة واسعة: bottle/cup/glass/milk/dairy/juice/carton/…) بعتبة مريحة **≥ 0.28** → قبول.
+7. **حظر ضيّق فقط** (`BLOCK_OBJECTS`: cigarette/vape/lighter/cell phone/laptop/keyboard/mouse) **≥ 0.58**
+   وبشرط عدم وجود باركود أو نص مشروب → رفض.
 
-النتيجة `Decision(locked, rejected, label, savedName)`:
-- `locked` → الهدف مُثبَّت (قطرة زرقاء ملكية + علامة ✓ خضراء + إطار نابض).
-- `rejected` → جسم ممنوع (إطار أحمر + رسالة).
-- غير ذلك → مسح (قطرة زجاجية سماوية).
+الباركود و OCR يعملان على **خيط خلفي** بتبريد ~1.2ث في المعاينة الحية وتشغيل كامل عند التوثيق.
 
-**التأكيد يدوي دائماً** — لا تسجيل تلقائي؛ المستخدم يضغط "توثيق الشرب".
+النتيجة `Decision(locked, rejected, label, savedName, ocrLabel)`:
+- `locked` → مُثبَّت (قطرة زرقاء ملكية `#003B99` + ✓ خضراء + إطار أخضر `#00E676`).
+- `rejected` → ممنوع (إطار أحمر).
+- غير ذلك → مسح (قطرة سماوية).
 
-## تعريف كأسك/عبوتك ⭐ (أدق طريقة)
+**التأكيد يدوي دائماً** — لا تسجيل إلا بضغط "توثيق الشرب".
 
-داخل شاشة الكاميرا: زر **"+ تعريف كأسي/عبوتي ⭐"** → التقاط إطار → استخراج بصمة → تسمية
-(عبوة مياه / مطارتي الرياضية / كوب أعشاب) مربوطة بالحجم المختار → حفظ في Room (جدول
-`saved_cup_signatures`, DB v4). بعدها يتعرّف عليها فوراً ويظهر "تم التعرف على: [الاسم] ⭐".
-إدارة/حذف الأكواب من زر ⭐ في أعلى الكاميرا.
+## أكوابي وعبواتي ⭐
+
+- شريط اختصارات أفقي بالأكواب المحفوظة؛ الضغط على كوب يضبط حجمه ويفعّل القبول الفوري.
+- زر **"+ تعريف كأسي/عبوتي ⭐"** يلتقط إطاراً، يقرأ **الباركود أو كلمة الملصق**، ويحفظ
+  (الاسم + الحجم + نوع المشروب + `barcodeOrKeyword`) في Room (`saved_cup_signatures`, DB v5).
+  بوجود باركود/كلمة → تعرّف تلقائي 100% بغضّ النظر عن الخلفية/الإضاءة.
+
+## الفحص السحابي الاختياري (Cloud AI — BYOK)
+
+[`CloudVisionVerifier.kt`](../app/src/main/java/com/hydroforce/pro/camera/CloudVisionVerifier.kt)
++ [`ui/CloudAiDialog.kt`](../app/src/main/java/com/hydroforce/pro/ui/CloudAiDialog.kt): عند التفعيل
+ووجود مفتاح Gemini مجاني من المستخدم واتصال إنترنت، تُرسل صورة مصغّرة إلى `gemini-2.5-flash`
+للتحقق بدقة؛ أي خطأ/عدم اتصال → **رجوع تلقائي للوضع المحلي**. المفتاح يُخزّن محلياً فقط
+(`SettingsRepository`)، والدليل المبسّط يفتح `https://aistudio.google.com/apikey`.
 
 ## كاشف COCO الجاهز (مُدمَج)
 
@@ -78,5 +72,6 @@ cp build/verosip_labels.txt    app/src/main/assets/verosip_labels.txt
 
 ## الخصوصية
 
-كل المعالجة في الذاكرة لحظياً. لا تُحفظ أي صورة. البصمة المخزّنة أرقام مجرّدة (64 قيمة)
-لا يمكن منها إعادة بناء صورة.
+المعالجة المحلية (باركود/OCR/COCO/ML Kit) كلها في الذاكرة لحظياً ولا تُحفظ أي صورة. المخزّن مع
+الكوب نص مجرّد فقط (باركود أو كلمة). **الفحص السحابي اختياري** ومعطّل افتراضياً — لا يُرسل شيء
+إلا إذا فعّله المستخدم وأدخل مفتاحه؛ وقتها تُرسل صورة الإطار المصغّرة إلى خدمة Gemini بمفتاحه هو.

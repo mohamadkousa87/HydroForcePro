@@ -18,7 +18,7 @@ class VeroSipOcr {
 
     private val client = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
-    data class OcrOutcome(val accept: String?, val reject: String?)
+    data class OcrOutcome(val accept: String?, val reject: String?, val rawText: String = "")
 
     fun read(bitmap: Bitmap, rotationDegrees: Int = 0): OcrOutcome {
         return runCatching {
@@ -26,10 +26,17 @@ class VeroSipOcr {
             val text = Tasks.await(client.process(img), 800, TimeUnit.MILLISECONDS)
             val t = text.text.lowercase()
             if (t.isBlank()) return@runCatching OcrOutcome(null, null)
-            REJECT_KEYWORDS.firstOrNull { t.contains(it) }?.let { return@runCatching OcrOutcome(null, it) }
+            REJECT_KEYWORDS.firstOrNull { t.contains(it) }?.let { return@runCatching OcrOutcome(null, it, t) }
             val accept = DRINK_KEYWORDS.firstOrNull { t.contains(it) }
-            OcrOutcome(accept, null)
+            OcrOutcome(accept, null, t)
         }.getOrDefault(OcrOutcome(null, null))
+    }
+
+    /** A short, stable keyword from the label to store with a registered cup (brand/word/number). */
+    fun bestKeyword(rawText: String): String? {
+        val tokens = rawText.split(Regex("[^a-z0-9]+")).filter { it.length in 3..20 }
+        // Prefer a known drink/brand word, else the longest alphabetic token.
+        return tokens.firstOrNull { it in DRINK_KEYWORDS } ?: tokens.maxByOrNull { it.length }
     }
 
     companion object {

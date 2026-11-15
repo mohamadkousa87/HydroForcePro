@@ -9,64 +9,34 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
-import kotlin.math.abs
 
 /**
- * Central vision decision engine. Combines a hard blacklist, a geometric shape guard, and three
- * acceptance sources (saved fingerprint / COCO TFLite detector / ML Kit rules) into one result.
+ * Seamless, permissive local vision engine. A frame locks (green) as soon as ANY drink/container
+ * signal appears — a saved barcode/keyword, a read label, a COCO container, or an ML Kit hint — with
+ * only a narrow high-confidence block for smoking/electronics. No fragile color fingerprint or strict
+ * geometry gates; those caused real cups/cartons to be rejected and backgrounds to be false-matched.
  */
 object VeroSipVisionEngine {
 
-    /**
-     * Hard block (smoking / electronics / toiletries) at >= [HARD_BLOCK_THRESHOLD].
-     * NOTE: "food", "ingredient" and "natural foods" are NEVER blocked — Google labels milk/laban/
-     * juice as "Food ~85%", so blocking food would reject every dairy/juice carton. Solid food is
-     * handled by the COCO detector + the SOLID_FOOD_LABELS list below instead.
-     */
-    val HARD_BLOCK_LABELS = setOf(
-        "cigarette", "electronic cigarette", "vape", "tobacco", "ashtray", "lighter", "smoke", "smoking",
-        "electronic device", "gadget", "mobile phone", "telephone", "remote", "mouse", "keyboard",
-        "cosmetics", "perfume", "toy", "tool"
+    /** Comfortable acceptance list — any of these (ML Kit) at >= [ACCEPT_THRESHOLD] locks the frame. */
+    val ACCEPT_HINTS = setOf(
+        "water", "bottle", "water bottle", "plastic bottle", "glass", "drinking glass", "cup", "mug",
+        "teacup", "coffee cup", "coffeecup", "drink", "liquid", "fluid", "beverage", "drinkware",
+        "tableware", "glassware", "pitcher", "tumbler", "teapot", "tea", "coffee", "jug", "flask",
+        "milk", "dairy", "dairy product", "yogurt", "ayran", "juice", "soft drink", "packaged goods",
+        "carton", "plastic", "cylinder", "container", "aqua"
     )
-    const val HARD_BLOCK_THRESHOLD = 0.40f
+    const val ACCEPT_THRESHOLD = 0.28f
 
-    /** SOLID foods / plates only (no generic "food") — blocked at high confidence. */
-    val SOLID_FOOD_LABELS = setOf(
-        "carrot", "vegetable", "meat", "bread", "rice", "pasta", "salad", "meal", "dish", "plate",
-        "platter", "bowl", "snack", "fast food", "dessert", "pizza", "sandwich", "cake", "baked goods"
+    /** Narrow block list — only explicit non-drink objects, at high confidence, and only when there
+     * is no barcode and no drink text (those override the block). */
+    val BLOCK_OBJECTS = setOf(
+        "cigarette", "electronic cigarette", "vape", "tobacco", "ashtray", "lighter",
+        "mobile phone", "cell phone", "keyboard", "mouse", "laptop"
     )
-    const val SOLID_FOOD_THRESHOLD = 0.62f
+    const val BLOCK_THRESHOLD = 0.58f
 
-    /** "packaged goods" counts as a drink container only when paired with one of these. */
-    val PACKAGE_CONTEXT = setOf(
-        "bottle", "plastic", "liquid", "fluid", "drink", "beverage", "dairy", "milk", "cup",
-        "carton", "cylinder", "container"
-    )
-
-    /** Strict "a real container is in the foreground NOW" gate for trusting a saved fingerprint. */
-    val STRICT_CONTAINER_LABELS = setOf(
-        "bottle", "water bottle", "plastic bottle", "cup", "mug", "drinking glass", "glass", "jug",
-        "tumbler", "pitcher", "milk", "dairy", "packaged goods"
-    )
-    const val STRICT_CONTAINER_THRESHOLD = 0.45f
-
-    /** Explicit drink/container words accepted directly at >= [DRINK_THRESHOLD]. */
-    val DIRECT_DRINK_LABELS = setOf(
-        "water bottle", "plastic bottle", "bottle", "cup", "mug", "teacup", "coffee cup", "coffeecup",
-        "drinking glass", "tumbler", "pitcher", "teapot", "water", "mineral water", "drink", "beverage",
-        "tea", "coffee", "jug", "flask", "soft drink", "juice",
-        "milk", "dairy", "dairy product", "yogurt", "ayran", "buttermilk", "kefir", "carton",
-        "nectar", "energy drink", "carbonated soft drink"
-    )
-    const val DRINK_THRESHOLD = 0.45f
-
-    /** "glass"/"drinkware" only count WITH a liquid/drink word present. */
-    val CONDITIONAL_GLASS = setOf("glass", "drinkware")
-    val LIQUID_CONTEXT = setOf("liquid", "water", "fluid", "drink", "beverage", "cup", "bottle", "aqua")
-    const val CONTEXT_THRESHOLD = 0.30f
-
-    private val RELEVANT = DIRECT_DRINK_LABELS + CONDITIONAL_GLASS + LIQUID_CONTEXT + HARD_BLOCK_LABELS +
-        SOLID_FOOD_LABELS + setOf("packaged goods")
+    private val RELEVANT = ACCEPT_HINTS + BLOCK_OBJECTS
 
     /** Outcome of the merged decision. */
     data class Decision(
@@ -78,79 +48,37 @@ object VeroSipVisionEngine {
         val ocrLabel: String? = null
     )
 
-    fun hardBlocked(labels: List<Pair<String, Float>>): Boolean =
-        labels.any {
-            val l = it.first.lowercase()
-            (l in HARD_BLOCK_LABELS && it.second >= HARD_BLOCK_THRESHOLD) ||
-                (l in SOLID_FOOD_LABELS && it.second >= SOLID_FOOD_THRESHOLD)
-        }
-
-    /** "packaged goods" + a drink-context word (bottle/plastic/dairy/milk…) → treat as a drink pack. */
-    fun packagedDrink(labels: List<Pair<String, Float>>): Boolean {
-        val lower = labels.map { it.first.lowercase() to it.second }
-        val pkg = lower.any { it.first == "packaged goods" && it.second >= 0.30f }
-        val ctx = lower.any { it.first in PACKAGE_CONTEXT && it.second >= 0.25f }
-        return pkg && ctx
-    }
-
-    /** ML Kit source (ج): a direct drink word, or conditional glass paired with a liquid word. */
-    fun mlDrinkLabel(labels: List<Pair<String, Float>>): String? {
-        val lower = labels.map { it.first.lowercase() to it.second }
-        lower.firstOrNull { it.first in DIRECT_DRINK_LABELS && it.second >= DRINK_THRESHOLD }?.let { return it.first }
-        val hasGlass = lower.any { it.first in CONDITIONAL_GLASS && it.second >= DRINK_THRESHOLD }
-        val hasLiquid = lower.any { it.first in LIQUID_CONTEXT && it.second >= CONTEXT_THRESHOLD }
-        return if (hasGlass && hasLiquid) "glass" else null
-    }
-
-    /** Relevant labels for the diagnostic vision bar (drink words or block reasons). */
+    /** Relevant labels for the diagnostic vision bar. */
     fun relevant(labels: List<Pair<String, Float>>): List<Pair<String, Float>> =
         labels.map { it.first.lowercase() to it.second }
             .filter { it.first in RELEVANT }
             .sortedByDescending { it.second }
             .take(3)
 
-    /**
-     * Shape guard: reject flat objects (plates/ashtrays — horizontal edges dominate) and tiny/thin
-     * objects (lighters/vapes that don't fill the center). Bottles/cups have balanced/vertical edges.
-     */
-    fun passesGeometry(bitmap: Bitmap): Boolean {
-        val n = 32
-        val s = Bitmap.createScaledBitmap(bitmap, n, n, true)
-        val px = IntArray(n * n)
-        s.getPixels(px, 0, n, 0, 0, n, n)
-        if (s !== bitmap) runCatching { s.recycle() }
-        val gray = FloatArray(n * n)
-        for (i in px.indices) {
-            val p = px[i]
-            gray[i] = 0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)
+    /** A saved cup whose stored barcode/keyword matches this frame's barcode or read label text. */
+    fun matchSaved(savedCups: List<SavedCupSignature>, barcode: String?, ocrText: String?): SavedCupSignature? {
+        if (savedCups.isEmpty()) return null
+        val code = barcode?.trim()?.lowercase()
+        val text = ocrText?.lowercase()
+        for (cup in savedCups) {
+            val key = cup.barcodeOrKeyword.trim().lowercase()
+            if (key.isBlank()) continue
+            if (code != null && key == code) return cup
+            if (text != null && key.length >= 3 && text.contains(key)) return cup
         }
-        var vert = 0f
-        var horiz = 0f
-        var edgePx = 0
-        var total = 0
-        for (y in 1 until n - 1) for (x in 1 until n - 1) {
-            val dx = abs(gray[y * n + (x + 1)] - gray[y * n + (x - 1)])
-            val dy = abs(gray[(y + 1) * n + x] - gray[(y - 1) * n + x])
-            vert += dx
-            horiz += dy
-            if (dx + dy > 40f) edgePx++
-            total++
-        }
-        val vertRatio = vert / (vert + horiz + 1f)
-        val coverage = edgePx.toFloat() / total.coerceAtLeast(1)
-        // Flat object (horizontal edges dominate) or too few edges (small/thin) → reject.
-        if (vertRatio < 0.30f) return false
-        if (coverage < 0.04f) return false
-        return true
+        return null
     }
 
     /**
-     * Merged decision, in order:
-     *  A) saved fingerprint — but ONLY when the frame has real container structure (geometry), so a
-     *     plain wall/floor that shares a color can never false-lock;
-     *  B) COCO detector — precise accept (bottle/cup/wine glass) or reject (bowl/phone/food);
-     *  C) hard block (smoking/electronics, or food at high confidence);
-     *  D) ML Kit drink rule guarded by geometry.
+     * Merged decision (seamless order):
+     *  1) OCR smoking text → reject;
+     *  2) saved cup matched by barcode/keyword → lock (⭐);
+     *  3) any barcode → lock (a scanned pack);
+     *  4) OCR drink keyword → lock (label read);
+     *  5) COCO container → lock;
+     *  6) ML Kit hint >= 0.28 → lock;
+     *  7) narrow block object >= 0.58 (no barcode / no drink text) → reject;
+     *  else scanning.
      */
     fun decide(
         bitmap: Bitmap,
@@ -158,63 +86,49 @@ object VeroSipVisionEngine {
         savedCups: List<SavedCupSignature>,
         tflite: OptionalTfliteModel?,
         ocr: VeroSipOcr? = null,
-        useOcr: Boolean = false
+        barcode: VeroSipBarcode? = null,
+        useHeavy: Boolean = false
     ): Decision {
-        val geoOk = passesGeometry(bitmap)
-        val coco = tflite?.detect(bitmap) // computed once, reused by Source A gate and Source B
-        val cocoAccept = coco is OptionalTfliteModel.CocoResult.Accept
-
-        // On-device OCR of the bottle/carton label (only when requested — it is heavier).
-        val ocrOutcome = if (useOcr && ocr != null) ocr.read(bitmap) else null
-        // OCR reject (nicotine/vape text on the object) wins over everything.
-        ocrOutcome?.reject?.let { return Decision(locked = false, rejected = true, label = it, savedName = null) }
-
         val lower = labels.map { it.first.lowercase() to it.second }
-        // STRICT foreground gate: a real container must be detected NOW (COCO box, or an explicit ML
-        // Kit container word >= 0.45). When the glass is removed, this disappears → fingerprint can't
-        // match the bare background.
-        val containerPresent = cocoAccept ||
-            lower.any { it.first in STRICT_CONTAINER_LABELS && it.second >= STRICT_CONTAINER_THRESHOLD }
 
-        // Source A: saved fingerprint, only with geometry AND a real container in the foreground.
-        if (geoOk && containerPresent) {
-            CupFingerprintMatcher.findBestMatch(bitmap, savedCups)?.let {
-                return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
-            }
-        }
-        // Source B: COCO object detector (active only when assets/verosip_coco.tflite is present).
-        when (coco) {
-            is OptionalTfliteModel.CocoResult.Reject ->
-                return Decision(locked = false, rejected = true, label = coco.label, savedName = null)
-            is OptionalTfliteModel.CocoResult.Accept ->
-                return Decision(locked = true, rejected = false, label = coco.label, savedName = null)
-            else -> {}
-        }
-        // OCR accept: a drink keyword read on the object → accept as a drink pack.
-        ocrOutcome?.accept?.let {
-            return Decision(locked = true, rejected = false, label = it, savedName = null, ocrLabel = it)
-        }
-        // Hard block: smoking/electronics, or SOLID food at high confidence (never generic "food").
-        if (hardBlocked(labels)) return Decision(locked = false, rejected = true, label = "", savedName = null)
+        // Heavy, high-value signals (barcode + OCR) — only when requested (throttled live, full on verify).
+        val code = if (useHeavy && barcode != null) barcode.read(bitmap) else null
+        val ocrOutcome = if (useHeavy && ocr != null) ocr.read(bitmap) else null
 
-        // Packaged drink (carton/bottle labeled "packaged goods" + a drink-context word).
-        if (packagedDrink(labels) && geoOk) {
-            return Decision(locked = true, rejected = false, label = "packaged drink", savedName = null)
+        // 1. Smoking text on the pack → reject (wins over everything).
+        ocrOutcome?.reject?.let { return Decision(false, true, it, null) }
+
+        // 2. One of the user's saved favorites (by barcode or printed keyword).
+        matchSaved(savedCups, code, ocrOutcome?.rawText)?.let {
+            return Decision(locked = true, rejected = false, label = it.name, savedName = it.name)
         }
-        // Source C: ML Kit explicit drink rule + geometric guard.
-        val ml = mlDrinkLabel(labels)
-        if (ml != null && geoOk) {
-            return Decision(locked = true, rejected = false, label = ml, savedName = null)
+        // 3. Any barcode in frame → it's a packaged product; accept as a drink pack.
+        if (code != null) return Decision(locked = true, rejected = false, label = "barcode", savedName = null)
+        // 4. A drink word read on the label.
+        ocrOutcome?.accept?.let { return Decision(locked = true, rejected = false, label = it, savedName = null, ocrLabel = it) }
+        // 5. COCO container (bottle/cup/wine glass). Ignore COCO reject here (permissive mode).
+        if (tflite?.detect(bitmap) is OptionalTfliteModel.CocoResult.Accept) {
+            return Decision(locked = true, rejected = false, label = "cup", savedName = null)
         }
-        return Decision(locked = false, rejected = false, label = "", savedName = null)
+        // 6. Any comfortable ML Kit hint.
+        lower.firstOrNull { it.first in ACCEPT_HINTS && it.second >= ACCEPT_THRESHOLD }?.let {
+            return Decision(locked = true, rejected = false, label = it.first, savedName = null)
+        }
+        // 7. Narrow block only when nothing drink-like is present.
+        val hasDrinkText = ocrOutcome?.accept != null
+        if (code == null && !hasDrinkText &&
+            lower.any { it.first in BLOCK_OBJECTS && it.second >= BLOCK_THRESHOLD }
+        ) {
+            return Decision(false, true, "", null)
+        }
+        return Decision(false, false, "", null)
     }
 }
 
 /**
  * On-device COCO object detector (SSD MobileNet v1, quantized). Auto-activates when
  * assets/verosip_coco.tflite + assets/labelmap.txt are present; if the model is missing or the
- * runtime can't load it, [detect] safely returns [CocoResult.None] and the app falls back to
- * saved fingerprints + ML Kit. See tools/README_VISION.md.
+ * runtime can't load it, [detect] safely returns [CocoResult.None]. See tools/README_VISION.md.
  */
 class OptionalTfliteModel(context: Context) {
 
@@ -231,15 +145,12 @@ class OptionalTfliteModel(context: Context) {
 
     /** Container classes accepted when the box isn't plate-flat. */
     private val acceptLabels = setOf("bottle", "cup", "wine glass")
-    private val acceptThreshold = 0.35f // lowered to help faint transparent glasses
-    private val minBoxAspect = 0.65f // boxHeight / boxWidth — plates are far wider than tall.
+    private val acceptThreshold = 0.30f
+    private val minBoxAspect = 0.55f // boxHeight / boxWidth — plates are far wider than tall.
 
     /** COCO classes that mean "this is not a drink" → instant reject. */
-    private val rejectLabels = setOf(
-        "bowl", "cell phone", "remote", "banana", "apple", "sandwich", "orange",
-        "broccoli", "carrot", "hot dog", "pizza", "donut", "cake"
-    )
-    private val rejectThreshold = 0.40f
+    private val rejectLabels = setOf("cell phone", "remote", "laptop", "keyboard", "mouse")
+    private val rejectThreshold = 0.50f
 
     val isAvailable: Boolean = runCatching {
         labels = context.assets.open("labelmap.txt").bufferedReader().use { it.readLines() }.map { it.trim() }
@@ -260,7 +171,6 @@ class OptionalTfliteModel(context: Context) {
         val itp = interpreter ?: return CocoResult.None
         val input = runCatching { buildInput(bitmap) }.getOrNull() ?: return CocoResult.None
 
-        // SSD MobileNet v1 outputs: locations, classes, scores, count.
         val locations = Array(1) { Array(maxDetections) { FloatArray(4) } } // ymin,xmin,ymax,xmax
         val classes = Array(1) { FloatArray(maxDetections) }
         val scores = Array(1) { FloatArray(maxDetections) }
@@ -278,7 +188,6 @@ class OptionalTfliteModel(context: Context) {
             val idx = classes[0][i].toInt()
             val label = labels.getOrNull(idx)?.lowercase() ?: continue
             if (label == "???") continue
-            // Reject wins over accept (immediate), per spec.
             if (label in rejectLabels && score >= rejectThreshold) return CocoResult.Reject(label)
             if (accept == null && label in acceptLabels && score >= acceptThreshold) {
                 val box = locations[0][i]

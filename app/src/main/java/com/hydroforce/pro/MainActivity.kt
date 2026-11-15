@@ -118,6 +118,8 @@ private fun HydroNavHost(vm: MainViewModel) {
     val workoutActive by vm.workoutActive.collectAsStateWithLifecycle()
     val bioCount by vm.todayBioCount.collectAsStateWithLifecycle()
     val savedCups by vm.savedCups.collectAsStateWithLifecycle()
+    val cloudAiEnabled by vm.cloudAiEnabled.collectAsStateWithLifecycle()
+    val geminiApiKey by vm.geminiApiKey.collectAsStateWithLifecycle()
     var permRefresh by remember { mutableIntStateOf(0) }
     val lang = LocalLanguage.current
 
@@ -266,7 +268,11 @@ private fun HydroNavHost(vm: MainViewModel) {
                             Toast.makeText(context, tr(lang, "تم حفظ الإعدادات ✅", "Settings saved ✅"), Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onBack = null
+                    onBack = null,
+                    cloudAiEnabled = cloudAiEnabled,
+                    geminiApiKey = geminiApiKey,
+                    onCloudAiEnabledChange = { vm.setCloudAiEnabled(it) },
+                    onGeminiKeyChange = { vm.setGeminiApiKey(it) }
                 )
             }
 
@@ -293,7 +299,11 @@ private fun HydroNavHost(vm: MainViewModel) {
                         title = tr("شربت ماء الآن؟ وثّق ذلك 📷", "Drinking now? Verify it 📷"),
                         defaultAmountMl = profile.cupSizeMl,
                         savedCups = savedCups,
-                        onRegisterCup = { name, volumeMl, sig -> vm.saveCupSignature(name, volumeMl, sig) },
+                        cloudAiEnabled = cloudAiEnabled,
+                        geminiApiKey = geminiApiKey,
+                        onCloudAiEnabledChange = { vm.setCloudAiEnabled(it) },
+                        onGeminiKeyChange = { vm.setGeminiApiKey(it) },
+                        onRegisterCup = { name, volumeMl, drinkTypeName, key -> vm.saveCupSignature(name, volumeMl, drinkTypeName, key) },
                         onDeleteCup = { vm.deleteCupSignature(it) },
                         onVerified = { amountMl, viaPromise ->
                             vm.onManualDrinkVerified(amountMl, viaPromise) {
@@ -325,7 +335,11 @@ private fun HydroNavHost(vm: MainViewModel) {
                         title = tr("وثّق وجود مطارة الماء معك 🏋️", "Verify your water bottle is with you 🏋️"),
                         defaultAmountMl = profile.cupSizeMl,
                         savedCups = savedCups,
-                        onRegisterCup = { name, volumeMl, sig -> vm.saveCupSignature(name, volumeMl, sig) },
+                        cloudAiEnabled = cloudAiEnabled,
+                        geminiApiKey = geminiApiKey,
+                        onCloudAiEnabledChange = { vm.setCloudAiEnabled(it) },
+                        onGeminiKeyChange = { vm.setGeminiApiKey(it) },
+                        onRegisterCup = { name, volumeMl, drinkTypeName, key -> vm.saveCupSignature(name, volumeMl, drinkTypeName, key) },
                         onDeleteCup = { vm.deleteCupSignature(it) },
                         onVerified = { _, _ ->
                             vm.startWorkout(duration) {

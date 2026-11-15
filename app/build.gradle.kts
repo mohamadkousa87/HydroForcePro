@@ -102,6 +102,8 @@ dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.8")
     // On-device OCR (reads bottle/carton labels, 100% offline) — Vision label reader.
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // On-device barcode scanning (100% offline) — recognizes saved bottles by barcode.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // Lightweight on-device TFLite runtime for the optional COCO object detector (Vision Source B).
     implementation("org.tensorflow:tensorflow-lite:2.14.0")

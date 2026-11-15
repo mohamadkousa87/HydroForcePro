@@ -94,19 +94,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val ringing: StateFlow<Boolean> = AlarmService.ringing
 
-    /** The user's saved cup/bottle fingerprints for on-device recognition. */
+    /** The user's saved favorite cups/bottles (recognized by barcode or printed label keyword). */
     val savedCups: StateFlow<List<SavedCupSignature>> = dao.cupSignaturesFlow()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    /** Persist a visual fingerprint of the user's own cup/bottle. */
-    fun saveCupSignature(name: String, volumeMl: Int, featureVector: FloatArray) {
+    /** Persist a favorite cup/bottle with its drink type and barcode/keyword (if any). */
+    fun saveCupSignature(name: String, volumeMl: Int, drinkTypeName: String, barcodeOrKeyword: String) {
         viewModelScope.launch {
             dao.insertCupSignature(
                 SavedCupSignature(
                     name = name,
                     defaultVolumeMl = volumeMl,
-                    featureVectorCsv = com.hydroforce.pro.camera.CupFingerprintMatcher.serialize(featureVector),
-                    createdAt = System.currentTimeMillis()
+                    featureVectorCsv = "",
+                    createdAt = System.currentTimeMillis(),
+                    drinkTypeName = drinkTypeName,
+                    barcodeOrKeyword = barcodeOrKeyword
                 )
             )
         }
@@ -114,6 +116,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteCupSignature(id: Long) {
         viewModelScope.launch { dao.deleteCupSignature(id) }
+    }
+
+    // ----- Optional Cloud AI (BYOK) -----
+    val cloudAiEnabled: StateFlow<Boolean> = repo.cloudAiEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val geminiApiKey: StateFlow<String> = repo.geminiApiKey
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    fun setCloudAiEnabled(enabled: Boolean) {
+        viewModelScope.launch { repo.setCloudAiEnabled(enabled) }
+    }
+
+    fun setGeminiApiKey(key: String) {
+        viewModelScope.launch { repo.setGeminiApiKey(key) }
     }
 
     val meetings: StateFlow<List<Meeting>> = repo.meetings

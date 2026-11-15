@@ -82,17 +82,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeler
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import com.hydroforce.pro.data.DrinkType
 import com.hydroforce.pro.data.SavedCupSignature
+import com.hydroforce.pro.ui.CloudAiDialog
 import com.hydroforce.pro.ui.HydroDanger
 import com.hydroforce.pro.ui.LocalLanguage
 import com.hydroforce.pro.ui.tr
 import kotlinx.coroutines.delay
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
@@ -103,6 +107,7 @@ private val VeroOrange = Color(0xFFFF8F3A)
 private val RoyalBlue = Color(0xFF003B99)
 
 private val VOLUME_OPTIONS = listOf(100, 200, 300, 400, 500)
+private val REGISTER_DRINKS = listOf(DrinkType.WATER, DrinkType.LABAN, DrinkType.MILK, DrinkType.FRESH_JUICE, DrinkType.HERBAL)
 
 private fun cropCenter(src: Bitmap, fraction: Float = 0.6f): Bitmap {
     val w = (src.width * fraction).toInt().coerceIn(1, src.width)
@@ -125,10 +130,11 @@ private fun analyzeLiveFrame(
     proxy: ImageProxy,
     labeler: ImageLabeler,
     lastTs: AtomicLong,
-    lastOcrTs: AtomicLong,
+    lastHeavyTs: AtomicLong,
     savedCups: List<SavedCupSignature>,
     tflite: OptionalTfliteModel?,
     ocr: VeroSipOcr?,
+    barcode: VeroSipBarcode?,
     executor: Executor,
     onResult: (VeroSipVisionEngine.Decision, List<Pair<String, Float>>) -> Unit
 ) {
@@ -138,9 +144,8 @@ private fun analyzeLiveFrame(
         return
     }
     lastTs.set(now)
-    // OCR is heavier → run it at most ~once per 1.2s during the live preview.
-    val doOcr = now - lastOcrTs.get() > 1200
-    if (doOcr) lastOcrTs.set(now)
+    val doHeavy = now - lastHeavyTs.get() > 1200
+    if (doHeavy) lastHeavyTs.set(now)
     val full = try { proxy.toBitmap() } catch (e: Exception) { null }
     if (full == null) {
         proxy.close()
@@ -148,12 +153,10 @@ private fun analyzeLiveFrame(
     }
     val rot = proxy.imageInfo.rotationDegrees
     val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
-    // Listeners run on [executor] (single background thread) so OCR's blocking read is safe and the
-    // bitmap is only recycled after the success listener fully finishes.
     labeler.process(InputImage.fromBitmap(cropped, rot))
         .addOnSuccessListener(executor) { labels ->
             val pairs = labels.map { it.text to it.confidence }
-            val decision = VeroSipVisionEngine.decide(cropped, pairs, savedCups, tflite, ocr, doOcr)
+            val decision = VeroSipVisionEngine.decide(cropped, pairs, savedCups, tflite, ocr, barcode, doHeavy)
             onResult(decision, VeroSipVisionEngine.relevant(pairs))
         }
         .addOnCompleteListener(executor) {
@@ -169,7 +172,11 @@ fun CameraVerificationScreen(
     title: String = "وثّق شرب الماء بالكاميرا",
     defaultAmountMl: Int = 400,
     savedCups: List<SavedCupSignature> = emptyList(),
-    onRegisterCup: (name: String, volumeMl: Int, signature: FloatArray) -> Unit = { _, _, _ -> },
+    cloudAiEnabled: Boolean = false,
+    geminiApiKey: String = "",
+    onCloudAiEnabledChange: (Boolean) -> Unit = {},
+    onGeminiKeyChange: (String) -> Unit = {},
+    onRegisterCup: (name: String, volumeMl: Int, drinkTypeName: String, barcodeOrKeyword: String) -> Unit = { _, _, _, _ -> },
     onDeleteCup: (Long) -> Unit = {},
     onVerified: (Int, Boolean) -> Unit
 ) {
@@ -194,14 +201,17 @@ fun CameraVerificationScreen(
         Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
-            tr("ضع الكأس داخل الإطار الأوسط ثم اضغط توثيق الشرب", "Put the cup inside the center frame, then tap Verify"),
+            tr("ضع الكأس أو العبوة داخل الإطار ثم اضغط توثيق الشرب", "Put the cup/bottle inside the frame, then tap Verify"),
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.8f),
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(12.dp))
         if (hasPermission) {
-            CameraContent(defaultAmountMl, savedCups, onRegisterCup, onDeleteCup, onVerified)
+            CameraContent(
+                defaultAmountMl, savedCups, cloudAiEnabled, geminiApiKey,
+                onCloudAiEnabledChange, onGeminiKeyChange, onRegisterCup, onDeleteCup, onVerified
+            )
         } else {
             Column(
                 Modifier
@@ -231,7 +241,11 @@ fun CameraVerificationScreen(
 private fun CameraContent(
     defaultAmountMl: Int,
     savedCups: List<SavedCupSignature>,
-    onRegisterCup: (String, Int, FloatArray) -> Unit,
+    cloudAiEnabled: Boolean,
+    geminiApiKey: String,
+    onCloudAiEnabledChange: (Boolean) -> Unit,
+    onGeminiKeyChange: (String) -> Unit,
+    onRegisterCup: (String, Int, String, String) -> Unit,
     onDeleteCup: (Long) -> Unit,
     onVerified: (Int, Boolean) -> Unit
 ) {
@@ -251,18 +265,26 @@ private fun CameraContent(
     var lastValidTs by remember { mutableLongStateOf(0L) }
     var overrideVerify by remember { mutableStateOf(false) }
     var showRegister by remember { mutableStateOf(false) }
-    var pendingSignature by remember { mutableStateOf<FloatArray?>(null) }
     var showManage by remember { mutableStateOf(false) }
+    var showCloud by remember { mutableStateOf(false) }
+    var pendingKey by remember { mutableStateOf("") }
+    var pinnedCup by remember { mutableStateOf<SavedCupSignature?>(null) }
     var selectedAmount by remember {
         mutableIntStateOf(VOLUME_OPTIONS.minByOrNull { abs(it - defaultAmountMl) } ?: 400)
     }
 
-    // Fresh snapshot of saved cups for the (set-once) analyzer.
+    // Fresh snapshots for the (set-once) analyzer.
     val savedCupsRef = remember { mutableStateOf(savedCups) }
     savedCupsRef.value = savedCups
+    val cloudEnabledRef = remember { mutableStateOf(cloudAiEnabled) }
+    cloudEnabledRef.value = cloudAiEnabled
+    val cloudKeyRef = remember { mutableStateOf(geminiApiKey) }
+    cloudKeyRef.value = geminiApiKey
+
     val tflite = remember { OptionalTfliteModel(context) }
     val ocr = remember { VeroSipOcr() }
-    val lastOcrTs = remember { AtomicLong(0L) }
+    val barcode = remember { VeroSipBarcode() }
+    val lastHeavyTs = remember { AtomicLong(0L) }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -274,10 +296,10 @@ private fun CameraContent(
         ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
     }
     val labeler = remember {
-        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.30f).build())
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.25f).build())
     }
     val liveLabeler = remember {
-        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.30f).build())
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.25f).build())
     }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val lastAnalysisTs = remember { AtomicLong(0L) }
@@ -295,8 +317,8 @@ private fun CameraContent(
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
                     analyzeLiveFrame(
-                        proxy, liveLabeler, lastAnalysisTs, lastOcrTs,
-                        savedCupsRef.value, tflite, ocr, analysisExecutor
+                        proxy, liveLabeler, lastAnalysisTs, lastHeavyTs,
+                        savedCupsRef.value, tflite, ocr, barcode, analysisExecutor
                     ) { decision, rel ->
                         liveLabels = rel
                         isTargetLocked = decision.locked
@@ -337,7 +359,7 @@ private fun CameraContent(
         }
     }
 
-    // Manual verify (never automatic): accept instantly if locked within 2s, else capture & scan.
+    // Manual verify: a tapped saved cup or a live lock accepts instantly; otherwise capture & scan.
     fun capture() {
         state = VerifyState.Analyzing
         imageCapture.takePicture(
@@ -352,25 +374,36 @@ private fun CameraContent(
                         return
                     }
                     val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
-                    // At the verification moment, run the FULL pipeline incl. OCR, on the background thread.
-                    labeler.process(InputImage.fromBitmap(cropped, rotation))
-                        .addOnSuccessListener(analysisExecutor) { labels ->
-                            val pairs = labels.map { it.text to it.confidence }
-                            val d = VeroSipVisionEngine.decide(cropped, pairs, savedCupsRef.value, tflite, ocr, useOcr = true)
-                            when {
-                                d.locked -> { overrideVerify = false; state = VerifyState.Verified(d.label) }
-                                d.rejected -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true) }
-                                else -> { failedAttempts++; state = VerifyState.Rejected(VeroSipVisionEngine.relevant(pairs).map { it.first }, isObject = false) }
+                    analysisExecutor.execute {
+                        try {
+                            // Optional Cloud AI (BYOK) first; any failure falls back to the local engine.
+                            if (cloudEnabledRef.value && cloudKeyRef.value.isNotBlank()) {
+                                when (CloudVisionVerifier.verify(cropped, cloudKeyRef.value)) {
+                                    is CloudVisionVerifier.Result.Positive -> { overrideVerify = false; state = VerifyState.Verified("cloud"); return@execute }
+                                    CloudVisionVerifier.Result.Negative -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true); return@execute }
+                                    CloudVisionVerifier.Result.Unavailable -> {}
+                                }
                             }
-                        }
-                        .addOnFailureListener(analysisExecutor) {
-                            failedAttempts++
-                            state = VerifyState.Error(tr(lang, "فشل التحليل: ${it.message ?: ""}", "Analysis failed: ${it.message ?: ""}"))
-                        }
-                        .addOnCompleteListener(analysisExecutor) {
+                            val labels = runCatching {
+                                Tasks.await(labeler.process(InputImage.fromBitmap(cropped, rotation)), 1500, TimeUnit.MILLISECONDS)
+                            }.getOrNull()
+                            if (labels == null) {
+                                failedAttempts++
+                                state = VerifyState.Error(tr(lang, "فشل التحليل، حاول مرة أخرى", "Analysis failed, try again"))
+                            } else {
+                                val pairs = labels.map { it.text to it.confidence }
+                                val d = VeroSipVisionEngine.decide(cropped, pairs, savedCupsRef.value, tflite, ocr, barcode, useHeavy = true)
+                                when {
+                                    d.locked -> { overrideVerify = false; state = VerifyState.Verified(d.label) }
+                                    d.rejected -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true) }
+                                    else -> { failedAttempts++; state = VerifyState.Rejected(VeroSipVisionEngine.relevant(pairs).map { it.first }, isObject = false) }
+                                }
+                            }
+                        } finally {
                             if (cropped !== full) runCatching { cropped.recycle() }
                             runCatching { full.recycle() }
                         }
+                    }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -383,24 +416,32 @@ private fun CameraContent(
 
     fun onVerifyClick() {
         val now = System.currentTimeMillis()
-        if (isTargetLocked || (lastValidLabel != null && now - lastValidTs < 2000)) {
-            overrideVerify = false
-            state = VerifyState.Verified(lastValidLabel ?: "cup")
-        } else {
-            capture()
+        when {
+            pinnedCup != null -> { overrideVerify = false; state = VerifyState.Verified(pinnedCup!!.name) }
+            isTargetLocked || (lastValidLabel != null && now - lastValidTs < 2000) -> {
+                overrideVerify = false
+                state = VerifyState.Verified(lastValidLabel ?: "cup")
+            }
+            else -> capture()
         }
     }
 
-    // Capture a frame and extract its fingerprint for registration.
+    // Capture a frame and read its barcode / label keyword for registration.
     fun captureForRegister() {
         imageCapture.takePicture(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
+                    val rotation = image.imageInfo.rotationDegrees
                     val full = try { image.toBitmap() } catch (e: Exception) { null } finally { image.close() }
-                    if (full != null) {
-                        val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
-                        pendingSignature = runCatching { CupFingerprintMatcher.extractVisualSignature(cropped) }.getOrNull()
+                    if (full == null) return
+                    val cropped = runCatching { cropCenter(full) }.getOrDefault(full)
+                    analysisExecutor.execute {
+                        val code = barcode.read(cropped, rotation)
+                        val key = code ?: ocr.read(cropped, rotation).let { out ->
+                            out.accept ?: ocr.bestKeyword(out.rawText)
+                        }
+                        pendingKey = key ?: ""
                         if (cropped !== full) runCatching { cropped.recycle() }
                         runCatching { full.recycle() }
                         showRegister = true
@@ -412,41 +453,54 @@ private fun CameraContent(
     }
 
     // ---- Dialogs ----
+    if (showCloud) {
+        CloudAiDialog(
+            enabled = cloudAiEnabled,
+            apiKey = geminiApiKey,
+            onEnabledChange = onCloudAiEnabledChange,
+            onKeyChange = onGeminiKeyChange,
+            onDismiss = { showCloud = false }
+        )
+    }
+
     if (showRegister) {
         var chosenName by remember { mutableStateOf("") }
         var customName by remember { mutableStateOf("") }
+        var drink by remember { mutableStateOf(DrinkType.WATER) }
         val options = listOf(
             tr("عبوة مياه", "Water bottle"),
             tr("مطارة", "Flask"),
+            tr("عبوة لبن", "Laban bottle"),
             tr("كوب أعشاب", "Herbal cup")
         )
-        // Custom text takes priority over a chip when the user typed something.
         val finalName = customName.trim().ifBlank { chosenName }
         AlertDialog(
-            onDismissRequest = { showRegister = false; pendingSignature = null },
+            onDismissRequest = { showRegister = false; pendingKey = "" },
             confirmButton = {
                 TextButton(
-                    enabled = finalName.isNotBlank() && pendingSignature != null,
+                    enabled = finalName.isNotBlank(),
                     onClick = {
-                        pendingSignature?.let { onRegisterCup(finalName, selectedAmount, it) }
+                        onRegisterCup(finalName, selectedAmount, drink.name, pendingKey)
                         showRegister = false
-                        pendingSignature = null
+                        pendingKey = ""
                         overrideVerify = false
                         state = VerifyState.Verified(finalName)
                     }
                 ) { Text(tr("حفظ وتوثيق ✓", "Save & verify ✓")) }
             },
-            dismissButton = { TextButton(onClick = { showRegister = false; pendingSignature = null }) { Text(tr("إلغاء", "Cancel")) } },
+            dismissButton = { TextButton(onClick = { showRegister = false; pendingKey = "" }) { Text(tr("إلغاء", "Cancel")) } },
             title = { Text(tr("تعريف كأسي/عبوتي ⭐", "Register my cup/bottle ⭐")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("اختر اسماً سريعاً (الحجم: $selectedAmount مل):", "Pick a quick name (volume: $selectedAmount ml):"))
-                    options.forEach { opt ->
-                        FilterChip(
-                            selected = chosenName == opt && customName.isBlank(),
-                            onClick = { chosenName = opt; customName = "" },
-                            label = { Text(opt) }
-                        )
+                    Text(tr("اختر اسماً (الحجم: $selectedAmount مل):", "Pick a name (volume: $selectedAmount ml):"))
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        options.forEach { opt ->
+                            FilterChip(
+                                selected = chosenName == opt && customName.isBlank(),
+                                onClick = { chosenName = opt; customName = "" },
+                                label = { Text(opt) }
+                            )
+                        }
                     }
                     OutlinedTextField(
                         value = customName,
@@ -456,6 +510,27 @@ private fun CameraContent(
                         placeholder = { Text(tr("مثال: كوب المكتب", "e.g. Office mug")) },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Text(tr("نوع المشروب:", "Drink type:"))
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        REGISTER_DRINKS.forEach { dt ->
+                            FilterChip(
+                                selected = drink == dt,
+                                onClick = { drink = dt },
+                                label = { Text("${dt.emoji} ${tr(lang, dt.label, dt.labelEn)}") }
+                            )
+                        }
+                    }
+                    if (pendingKey.isNotBlank()) {
+                        Text(
+                            tr("تم رصد معرّف للعبوة ✓ (سيُتعرّف عليها تلقائياً لاحقاً)", "Label/barcode captured ✓ (auto-recognized next time)"),
+                            style = MaterialTheme.typography.bodySmall, color = VeroGreen
+                        )
+                    } else {
+                        Text(
+                            tr("لم يُرصد باركود/نص — سيُحفظ بالاسم فقط وتختاره من الشريط.", "No barcode/text found — saved by name; pick it from the bar."),
+                            style = MaterialTheme.typography.bodySmall, color = Color.Gray
+                        )
+                    }
                 }
             }
         )
@@ -561,14 +636,22 @@ private fun CameraContent(
             }
         }
 
-        Box(
-            Modifier.align(Alignment.TopEnd).padding(12.dp).size(44.dp).clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.5f))
-                .clickable { torchOn = !torchOn; camera?.cameraControl?.enableTorch(torchOn) },
-            contentAlignment = Alignment.Center
-        ) { Text(if (torchOn) "🔦" else "💡", fontSize = 20.sp) }
+        // Torch + Cloud AI (top-end).
+        Row(Modifier.align(Alignment.TopEnd).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier.size(44.dp).clip(CircleShape)
+                    .background(if (cloudAiEnabled) VeroGreen.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.5f))
+                    .clickable { showCloud = true },
+                contentAlignment = Alignment.Center
+            ) { Text("☁️", fontSize = 18.sp) }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { torchOn = !torchOn; camera?.cameraControl?.enableTorch(torchOn) },
+                contentAlignment = Alignment.Center
+            ) { Text(if (torchOn) "🔦" else "💡", fontSize = 20.sp) }
+        }
 
-        // Register / manage buttons (top-start).
+        // Register / manage (top-start).
         Row(Modifier.align(Alignment.TopStart).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.5f))
@@ -587,7 +670,7 @@ private fun CameraContent(
         if (verified == null) {
             val highlight = lockedSavedName != null || (isTargetLocked && lockedOcrLabel != null)
             val bar = when {
-                lockedSavedName != null -> tr("تم التعرف على: ${lockedSavedName} ⭐", "Recognized: ${lockedSavedName} ⭐")
+                lockedSavedName != null -> tr("تم التعرف على عبوتك: ${lockedSavedName} ⭐", "Recognized your cup: ${lockedSavedName} ⭐")
                 isTargetLocked && lockedOcrLabel != null -> tr("تم قراءة ملصق العبوة: ${lockedOcrLabel} ✓", "Label read: ${lockedOcrLabel} ✓")
                 liveLabels.isNotEmpty() -> tr("الرؤية: ", "Vision: ") + liveLabels.joinToString("  |  ") { "${it.first} ${(it.second * 100).toInt()}%" }
                 else -> null
@@ -607,7 +690,11 @@ private fun CameraContent(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color.White)
                     Spacer(Modifier.height(12.dp))
-                    Text(tr("جارٍ التحقق بالذكاء الاصطناعي...", "Verifying with AI..."), color = Color.White)
+                    Text(
+                        if (cloudAiEnabled && geminiApiKey.isNotBlank()) tr("جارٍ التحقق بالذكاء السحابي...", "Verifying with Cloud AI...")
+                        else tr("جارٍ التحقق بالذكاء الاصطناعي...", "Verifying with AI..."),
+                        color = Color.White
+                    )
                 }
             }
         }
@@ -635,14 +722,34 @@ private fun CameraContent(
     when (val s = state) {
         is VerifyState.Rejected -> MessageBox(
             if (s.isObject) {
-                tr("رُصد جسم غير مسموح (طعام/إلكترونيات)! صوّر الكأس أو القارورة فقط 🚫", "A non-allowed object (food/electronics) was detected! Capture only the cup or bottle 🚫")
+                tr("رُصد جسم غير مسموح (تدخين/إلكترونيات)! صوّر الكأس أو العبوة فقط 🚫", "A non-allowed object (smoking/electronics) was detected! Capture only the cup or bottle 🚫")
             } else {
-                tr("لم يتم رصد كأس بوضوح — قرّب العبوة داخل الإطار", "No clear cup detected — move the bottle inside the frame") +
-                    if (s.seen.isNotEmpty()) tr("\n(تم رصد: ${s.seen.joinToString("، ")})", "\n(detected: ${s.seen.joinToString(", ")})") else ""
+                tr("لم يتم رصد كأس بوضوح — قرّب العبوة داخل الإطار", "No clear cup detected — move the bottle inside the frame")
             }
         )
         is VerifyState.Error -> MessageBox(s.message)
         else -> {}
+    }
+
+    // Saved cups shortcut bar.
+    if (savedCups.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        Text(tr("أكوابي ⭐", "My cups ⭐"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            savedCups.forEach { cup ->
+                FilterChip(
+                    selected = pinnedCup?.id == cup.id,
+                    onClick = {
+                        pinnedCup = if (pinnedCup?.id == cup.id) null else cup
+                        if (pinnedCup != null) selectedAmount = cup.defaultVolumeMl
+                    },
+                    enabled = verified == null,
+                    label = { Text("⭐ ${cup.name} ${cup.defaultVolumeMl}") },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = VeroGreen, selectedLabelColor = Color.Black, labelColor = Color.White)
+                )
+            }
+        }
     }
 
     Spacer(Modifier.height(12.dp))
@@ -668,10 +775,10 @@ private fun CameraContent(
         enabled = state !is VerifyState.Analyzing && verified == null,
         modifier = Modifier.fillMaxWidth().height(58.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = if (isTargetLocked) VeroGreen else Color.White, contentColor = Color(0xFF0A1118))
+        colors = ButtonDefaults.buttonColors(containerColor = if (isTargetLocked || pinnedCup != null) VeroGreen else Color.White, contentColor = Color(0xFF0A1118))
     ) {
         Text(
-            if (isTargetLocked) tr("توثيق الشرب ✓", "Verify drink ✓") else tr("📷 توثيق الشرب ($selectedAmount مل)", "📷 Verify drink ($selectedAmount ml)"),
+            if (isTargetLocked || pinnedCup != null) tr("توثيق الشرب ✓", "Verify drink ✓") else tr("📷 توثيق الشرب ($selectedAmount مل)", "📷 Verify drink ($selectedAmount ml)"),
             fontSize = 17.sp, fontWeight = FontWeight.Bold
         )
     }
