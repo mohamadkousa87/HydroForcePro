@@ -9,9 +9,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Optional Cloud AI verification using the user's OWN Gemini API key (BYOK). Nothing is uploaded
- * unless the user enables it and provides a key. Robust against hardware bitmaps, Markdown-wrapped
- * JSON, and 404 model names; surfaces the real error on failure.
+ * Optional Cloud AI verification using the user's OWN Gemini API key (BYOK). Model selection is FULLY
+ * dynamic — it queries the account's own model list (GET /models) and uses whatever generateContent
+ * models exist, newest flash first. This survives Google retiring version numbers (1.5/2.0/…) without
+ * any code change. Robust against hardware bitmaps and Markdown-wrapped JSON; surfaces real errors.
  *
  * [verify] and [verifyKey] block on the network — call them on a BACKGROUND thread.
  */
@@ -31,10 +32,12 @@ object CloudVisionVerifier {
         data object NoNetwork : KeyStatus
     }
 
-    private val PREFERRED = listOf("gemini-2.5-flash", "gemini-2.0-flash")
+    /** Model names (short, no "models/") excluded — not image/text chat models. */
+    private val EXCLUDE = listOf("embedding", "imagen", "tts", "aqa", "audio", "veo", "learnlm")
 
+    /** Cached, ranked list of callable model names (as returned by the server, incl. "models/"). */
     @Volatile
-    private var cachedModel: String? = null
+    private var cachedModels: List<String>? = null
 
     private const val PROMPT =
         "Look closely at this image. Is the main object a real beverage container or drink " +
@@ -75,14 +78,16 @@ object CloudVisionVerifier {
             }))
         }.toString()
 
-        val models = (listOf(resolveModel(key)) + PREFERRED).distinct()
+        val ordered = discoverModels(key).ifEmpty {
+            listOf("models/gemini-flash-latest", "models/gemini-2.5-flash")
+        }
         var lastError = "unknown"
-        for (model in models) {
-            // Path must include "models/": v1beta/models/<model>:generateContent
-            val res = post("models/$model:generateContent", key, body) ?: return Result.Unavailable("Timeout/Network")
+        for (name in ordered) {
+            val modelPath = if (name.startsWith("models/")) name else "models/$name"
+            val res = post("$modelPath:generateContent", key, body) ?: return Result.Unavailable("Timeout/Network")
             val (code, resp) = res
             when {
-                code == 404 -> { cachedModel = null; lastError = "HTTP 404 ($model)"; continue }
+                code == 404 || code == 400 -> { lastError = "HTTP $code (${name.removePrefix("models/")})"; continue }
                 code !in 200..299 -> return Result.Unavailable("HTTP $code: ${parseError(resp).take(60)}")
                 else -> {
                     val (isDrink, item) = readResult(resp)
@@ -94,10 +99,11 @@ object CloudVisionVerifier {
                 }
             }
         }
+        cachedModels = null // force a fresh discovery next time
         return Result.Unavailable(lastError)
     }
 
-    /** Key check via a lightweight GET on the models list (no body, never 404s on a model name). */
+    /** Key check via GET /models (no body, never 404s on a model name) + caches the ranked list. */
     fun verifyKey(rawKey: String): KeyStatus {
         val key = clean(rawKey)
         if (key.isBlank()) return KeyStatus.Invalid("المفتاح فارغ / empty key")
@@ -110,7 +116,7 @@ object CloudVisionVerifier {
             if (code in 200..299) {
                 val resp = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                cachedModel = pickModel(resp) // remember a vision model for image checks
+                cachedModels = rankModels(resp)
                 KeyStatus.Ok
             } else {
                 val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -126,30 +132,38 @@ object CloudVisionVerifier {
         }
     }
 
-    /** Return a cached/known model, else query the account's model list, else the first preferred. */
-    private fun resolveModel(key: String): String {
-        cachedModel?.let { return it }
-        val res = post2("models", key, null, "GET")
-        val model = res?.takeIf { it.first in 200..299 }?.let { pickModel(it.second) }
-        if (model != null) cachedModel = model
-        return model ?: PREFERRED.first()
+    private fun discoverModels(key: String): List<String> {
+        cachedModels?.let { if (it.isNotEmpty()) return it }
+        val res = post2("models", key, null, "GET") ?: return emptyList()
+        if (res.first !in 200..299) return emptyList()
+        return rankModels(res.second).also { if (it.isNotEmpty()) cachedModels = it }
     }
 
-    /** From a GET /models response, pick the best flash model that supports generateContent. */
-    private fun pickModel(resp: String): String? = runCatching {
+    /** Rank generateContent models: stable *-latest aliases, then newest flash, then other gemini. */
+    private fun rankModels(resp: String): List<String> = runCatching {
         val arr = JSONObject(resp).getJSONArray("models")
-        val names = mutableListOf<String>()
+        val cand = mutableListOf<String>()
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
-            val name = o.optString("name").removePrefix("models/")
+            val name = o.optString("name")
+            val short = name.removePrefix("models/").lowercase()
+            if (short.isBlank()) continue
             val methods = o.optJSONArray("supportedGenerationMethods")
             val supports = methods != null && (0 until methods.length()).any { methods.optString(it) == "generateContent" }
-            if (supports && name.isNotBlank()) names += name
+            if (!supports) continue
+            if (EXCLUDE.any { short.contains(it) }) continue
+            cand += name
         }
-        PREFERRED.firstOrNull { it in names }
-            ?: names.firstOrNull { it.contains("gemini") && it.contains("flash") }
-            ?: names.firstOrNull { it.contains("gemini") }
-    }.getOrNull()
+        fun ver(n: String): Double =
+            Regex("gemini-([0-9]+(?:\\.[0-9]+)?)").find(n.lowercase())?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+        val stable = cand.filter {
+            val s = it.lowercase()
+            s.endsWith("gemini-flash-latest") || s.endsWith("gemini-flash-lite-latest")
+        }.sortedBy { if (it.lowercase().contains("lite")) 1 else 0 }
+        val flash = cand.filter { it.lowercase().contains("flash") && it !in stable }.sortedByDescending { ver(it) }
+        val others = cand.filter { it !in stable && it !in flash }.sortedByDescending { ver(it) }
+        (stable + flash + others).distinct()
+    }.getOrDefault(emptyList())
 
     /** Returns (httpCode, body) or null on a network-level failure. */
     private fun post(path: String, key: String, body: String): Pair<Int, String>? =
