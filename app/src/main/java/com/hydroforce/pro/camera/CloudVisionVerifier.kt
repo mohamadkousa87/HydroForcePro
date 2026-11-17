@@ -78,7 +78,8 @@ object CloudVisionVerifier {
         val models = (listOf(resolveModel(key)) + PREFERRED).distinct()
         var lastError = "unknown"
         for (model in models) {
-            val res = post("$model:generateContent", key, body) ?: return Result.Unavailable("Timeout/Network")
+            // Path must include "models/": v1beta/models/<model>:generateContent
+            val res = post("models/$model:generateContent", key, body) ?: return Result.Unavailable("Timeout/Network")
             val (code, resp) = res
             when {
                 code == 404 -> { cachedModel = null; lastError = "HTTP 404 ($model)"; continue }
