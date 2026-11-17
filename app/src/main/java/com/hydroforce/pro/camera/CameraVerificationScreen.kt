@@ -399,11 +399,14 @@ private fun CameraContent(
                             // Cloud mode: the cloud is the sole judge. On any failure we INFORM & STOP
                             // (no silent local fallback), per the chosen design.
                             if (cloudEnabledRef.value && cloudKeyRef.value.isNotBlank()) {
-                                when (CloudVisionVerifier.verify(cropped, cloudKeyRef.value)) {
+                                when (val r = CloudVisionVerifier.verify(cropped, cloudKeyRef.value)) {
                                     is CloudVisionVerifier.Result.Positive -> { overrideVerify = false; state = VerifyState.Verified("cloud") }
-                                    CloudVisionVerifier.Result.Negative -> { failedAttempts++; state = VerifyState.Rejected(emptyList(), isObject = true) }
-                                    CloudVisionVerifier.Result.Unavailable -> state = VerifyState.Error(
-                                        tr(lang, "تعذّر الفحص السحابي — تحقق من الإنترنت أو المفتاح وحاول ثانية 🌐", "Cloud check failed — check your internet or key and try again 🌐")
+                                    is CloudVisionVerifier.Result.Negative -> {
+                                        failedAttempts++
+                                        state = VerifyState.Error(tr(lang, "🚫 الذكاء السحابي: هذا ليس مشروباً (${r.item}) — وجّه الكاميرا نحو الكأس أو العبوة", "🚫 Cloud AI: not a drink (${r.item}) — aim at the cup or bottle"))
+                                    }
+                                    is CloudVisionVerifier.Result.Unavailable -> state = VerifyState.Error(
+                                        tr(lang, "تعذّر الفحص السحابي — ${r.reason} 🌐", "Cloud check failed — ${r.reason} 🌐")
                                     )
                                 }
                                 return@execute

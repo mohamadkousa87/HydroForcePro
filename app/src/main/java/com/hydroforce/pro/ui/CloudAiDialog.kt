@@ -106,7 +106,12 @@ fun CloudAiDialog(
                             scope.launch {
                                 val s = withContext(Dispatchers.IO) { CloudVisionVerifier.verifyKey(k) }
                                 status = s; checking = false
-                                if (s is CloudVisionVerifier.KeyStatus.Ok) onKeyChange(k)
+                                // Auto-save + enable the moment the key checks out (no extra "Save" tap needed).
+                                if (s is CloudVisionVerifier.KeyStatus.Ok) {
+                                    keyText = k
+                                    onKeyChange(k)
+                                    onEnabledChange(true)
+                                }
                             }
                         },
                         enabled = !checking && keyText.isNotBlank(),
