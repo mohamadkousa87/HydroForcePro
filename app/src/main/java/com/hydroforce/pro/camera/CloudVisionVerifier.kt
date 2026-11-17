@@ -26,7 +26,7 @@ object CloudVisionVerifier {
 
     sealed interface KeyStatus {
         data object Ok : KeyStatus
-        data object Invalid : KeyStatus
+        data class Invalid(val detail: String) : KeyStatus
         data object NoNetwork : KeyStatus
     }
 
@@ -39,7 +39,9 @@ object CloudVisionVerifier {
             "Furniture, a room, a basket, clothes, a phone, or any non-drinking object is NOT a drink. " +
             "Reply with ONLY compact JSON: {\"is_drink\": true/false, \"label\": \"short label\"}"
 
-    private fun clean(raw: String): String = raw.trim().replace("\\s+".toRegex(), "")
+    /** Extract an AIza… key even if the user pasted a whole URL; else trimmed, whitespace-stripped. */
+    private fun clean(raw: String): String =
+        Regex("AIza[0-9A-Za-z\\-_]{30,}").find(raw)?.value ?: raw.trim().replace("\\s+".toRegex(), "")
 
     fun verify(bitmap: Bitmap, rawKey: String): Result {
         val key = clean(rawKey)
@@ -74,29 +76,38 @@ object CloudVisionVerifier {
         return Result.Unavailable
     }
 
-    /** Lightweight connectivity/key check (no image). */
+    /**
+     * Key check via a lightweight GET on the models list — it needs no JSON body and never fails on a
+     * model name, so a valid key returns HTTP 200. Other codes surface the server's real error message.
+     */
     fun verifyKey(rawKey: String): KeyStatus {
         val key = clean(rawKey)
-        if (key.isBlank()) return KeyStatus.Invalid
-        val body = JSONObject().apply {
-            put("contents", org.json.JSONArray().put(JSONObject().apply {
-                put("parts", org.json.JSONArray().put(JSONObject().put("text", "ping")))
-            }))
-        }.toString()
-        var sawNetworkError = false
-        for (model in MODELS) {
-            val res = post(model, key, body)
-            if (res == null) { sawNetworkError = true; continue }
-            val (code, _) = res
-            when {
-                code in 200..299 -> return KeyStatus.Ok
-                code == 400 || code == 401 || code == 403 -> return KeyStatus.Invalid
-                code == 404 -> continue
-                else -> return KeyStatus.Invalid
+        if (key.isBlank()) return KeyStatus.Invalid("المفتاح فارغ / empty key")
+        return try {
+            val url = URL("https://generativelanguage.googleapis.com/v1beta/models?key=$key")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"; connectTimeout = 8000; readTimeout = 10000
             }
+            val code = conn.responseCode
+            if (code in 200..299) {
+                conn.disconnect(); KeyStatus.Ok
+            } else {
+                val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+                KeyStatus.Invalid(parseError(err).ifBlank { "HTTP $code" })
+            }
+        } catch (e: java.net.UnknownHostException) {
+            KeyStatus.NoNetwork
+        } catch (e: IOException) {
+            KeyStatus.NoNetwork
+        } catch (e: Exception) {
+            KeyStatus.Invalid(e.message ?: "error")
         }
-        return if (sawNetworkError) KeyStatus.NoNetwork else KeyStatus.Ok
     }
+
+    private fun parseError(json: String): String = runCatching {
+        JSONObject(json).getJSONObject("error").getString("message")
+    }.getOrDefault("")
 
     /** Returns (httpCode, body) or null on a network-level failure. */
     private fun post(model: String, key: String, body: String): Pair<Int, String>? {

@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -97,6 +98,7 @@ import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.SavedCupSignature
 import com.hydroforce.pro.data.VolumeUnit
 import com.hydroforce.pro.data.formatVolume
+import com.hydroforce.pro.data.volumeUnitLabel
 import com.hydroforce.pro.ui.CloudAiDialog
 import com.hydroforce.pro.ui.HydroDanger
 import com.hydroforce.pro.ui.LocalLanguage
@@ -751,12 +753,19 @@ private fun CameraContent(
         value = customVolText,
         onValueChange = { v ->
             customVolText = v.filter { it.isDigit() }.take(4)
-            customVolText.toIntOrNull()?.let { if (it in 50..2500) selectedAmount = it }
+            customVolText.toIntOrNull()?.let { if (it in 1..5000) selectedAmount = it }
         },
         singleLine = true,
         enabled = verified == null,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        label = { Text(tr("حجم مخصص (مل)", "Custom (ml)")) },
+        textStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold),
+        label = { Text(tr("حجم مخصص", "Custom amount"), color = Color.White.copy(alpha = 0.85f)) },
+        suffix = { Text(volumeUnitLabel(volumeUnit, lang), color = Color.White, fontWeight = FontWeight.Bold) },
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = VeroCyan,
+            unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
+            cursorColor = VeroCyan
+        ),
         modifier = Modifier.fillMaxWidth()
     )
 

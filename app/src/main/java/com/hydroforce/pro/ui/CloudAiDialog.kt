@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,7 +31,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hydroforce.pro.camera.CloudVisionVerifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -110,15 +113,21 @@ fun CloudAiDialog(
                         modifier = Modifier.weight(1f)
                     ) { Text(if (checking) tr("جارٍ الفحص...", "Checking...") else tr("🔍 فحص وتأكيد", "🔍 Verify")) }
                 }
-                Button(onClick = { showLearn = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(tr("💡 تعلم كيف تحصل على مفتاحك المجاني", "💡 Get a free key"))
+                Button(
+                    onClick = { showLearn = true },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        tr("💡 تعلم كيف تحصل على مفتاحك المجاني", "💡 Get a free key"),
+                        fontSize = 13.sp, textAlign = TextAlign.Center
+                    )
                 }
-                when (status) {
+                when (val st = status) {
                     CloudVisionVerifier.KeyStatus.Ok -> StatusBadge(
                         tr("✅ المفتاح صحيح! التدقيق السحابي مربوط بحسابك الآن", "✅ Key valid! Cloud check is linked to your account"), CloudGreen
                     )
-                    CloudVisionVerifier.KeyStatus.Invalid -> StatusBadge(
-                        tr("❌ مفتاح غير صالح — تأكد من نسخه كاملاً", "❌ Invalid key — make sure you copied it fully"), CloudRed
+                    is CloudVisionVerifier.KeyStatus.Invalid -> StatusBadge(
+                        tr("❌ مفتاح غير صالح — ${st.detail}", "❌ Invalid key — ${st.detail}"), CloudRed
                     )
                     CloudVisionVerifier.KeyStatus.NoNetwork -> StatusBadge(
                         tr("❌ لا يوجد إنترنت — تحقق من الاتصال", "❌ No internet — check your connection"), CloudRed
