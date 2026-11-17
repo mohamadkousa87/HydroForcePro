@@ -31,7 +31,7 @@ object CloudVisionVerifier {
         data object NoNetwork : KeyStatus
     }
 
-    private val PREFERRED = listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash")
+    private val PREFERRED = listOf("gemini-2.5-flash", "gemini-2.0-flash")
 
     @Volatile
     private var cachedModel: String? = null
