@@ -400,16 +400,19 @@ private fun CameraContent(
                             // (no silent local fallback), per the chosen design.
                             if (cloudEnabledRef.value && cloudKeyRef.value.isNotBlank()) {
                                 when (val r = CloudVisionVerifier.verify(cropped, cloudKeyRef.value)) {
-                                    is CloudVisionVerifier.Result.Positive -> { overrideVerify = false; state = VerifyState.Verified("cloud") }
+                                    is CloudVisionVerifier.Result.Positive -> { overrideVerify = false; state = VerifyState.Verified("cloud"); return@execute }
                                     is CloudVisionVerifier.Result.Negative -> {
                                         failedAttempts++
                                         state = VerifyState.Error(tr(lang, "🚫 الذكاء السحابي: هذا ليس مشروباً (${r.item}) — وجّه الكاميرا نحو الكأس أو العبوة", "🚫 Cloud AI: not a drink (${r.item}) — aim at the cup or bottle"))
+                                        return@execute
                                     }
-                                    is CloudVisionVerifier.Result.Unavailable -> state = VerifyState.Error(
-                                        tr(lang, "تعذّر الفحص السحابي — ${r.reason} 🌐", "Cloud check failed — ${r.reason} 🌐")
-                                    )
+                                    is CloudVisionVerifier.Result.Unavailable -> {
+                                        state = VerifyState.Error(tr(lang, "تعذّر الفحص السحابي — ${r.reason} 🌐", "Cloud check failed — ${r.reason} 🌐"))
+                                        return@execute
+                                    }
+                                    // All Google models overloaded (503/429) → fall through to the local engine below.
+                                    is CloudVisionVerifier.Result.Overloaded -> {}
                                 }
-                                return@execute
                             }
                             val labels = runCatching {
                                 Tasks.await(labeler.process(InputImage.fromBitmap(cropped, rotation)), 1500, TimeUnit.MILLISECONDS)

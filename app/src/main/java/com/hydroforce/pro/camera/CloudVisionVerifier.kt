@@ -22,6 +22,8 @@ object CloudVisionVerifier {
         data class Positive(val label: String) : Result
         /** The cloud looked and it is NOT a drink (e.g. ashtray/furniture) — not an error. */
         data class Negative(val item: String) : Result
+        /** All candidate models were overloaded (503/429/500) — caller should use the local engine. */
+        data class Overloaded(val reason: String) : Result
         /** Disabled, offline, bad key, or any error — with a concrete reason. */
         data class Unavailable(val reason: String) : Result
     }
@@ -82,12 +84,16 @@ object CloudVisionVerifier {
             listOf("models/gemini-flash-latest", "models/gemini-2.5-flash")
         }
         var lastError = "unknown"
+        var sawOverload = false
         for (name in ordered) {
             val modelPath = if (name.startsWith("models/")) name else "models/$name"
             val res = post("$modelPath:generateContent", key, body) ?: return Result.Unavailable("Timeout/Network")
             val (code, resp) = res
             when {
+                // Missing model name → skip quietly.
                 code == 404 || code == 400 -> { lastError = "HTTP $code (${name.removePrefix("models/")})"; continue }
+                // Overloaded / rate-limited / server error → try the next model instantly.
+                code == 503 || code == 429 || code == 500 -> { sawOverload = true; lastError = "HTTP $code"; continue }
                 code !in 200..299 -> return Result.Unavailable("HTTP $code: ${parseError(resp).take(60)}")
                 else -> {
                     val (isDrink, item) = readResult(resp)
@@ -100,7 +106,8 @@ object CloudVisionVerifier {
             }
         }
         cachedModels = null // force a fresh discovery next time
-        return Result.Unavailable(lastError)
+        // Every candidate was overloaded → let the caller fall back to the local engine.
+        return if (sawOverload) Result.Overloaded(lastError) else Result.Unavailable(lastError)
     }
 
     /** Key check via GET /models (no body, never 404s on a model name) + caches the ranked list. */
@@ -160,7 +167,10 @@ object CloudVisionVerifier {
             val s = it.lowercase()
             s.endsWith("gemini-flash-latest") || s.endsWith("gemini-flash-lite-latest")
         }.sortedBy { if (it.lowercase().contains("lite")) 1 else 0 }
-        val flash = cand.filter { it.lowercase().contains("flash") && it !in stable }.sortedByDescending { ver(it) }
+        // Flash by newest version; within a version, full flash before flash-lite (lite is the quick backup).
+        val flash = cand.filter { it.lowercase().contains("flash") && it !in stable }
+            .sortedWith(compareByDescending<String> { ver(it) }.thenBy { if (it.lowercase().contains("lite")) 1 else 0 })
+        // Remaining gemini models (e.g. pro) as a last resort.
         val others = cand.filter { it !in stable && it !in flash }.sortedByDescending { ver(it) }
         (stable + flash + others).distinct()
     }.getOrDefault(emptyList())
