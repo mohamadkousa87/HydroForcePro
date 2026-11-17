@@ -87,8 +87,15 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeler
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.hydroforce.pro.data.DrinkType
+import com.hydroforce.pro.data.Language
 import com.hydroforce.pro.data.SavedCupSignature
+import com.hydroforce.pro.data.VolumeUnit
+import com.hydroforce.pro.data.formatVolume
 import com.hydroforce.pro.ui.CloudAiDialog
 import com.hydroforce.pro.ui.HydroDanger
 import com.hydroforce.pro.ui.LocalLanguage
@@ -106,8 +113,11 @@ private val VeroRed = Color(0xFFFF5252)
 private val VeroOrange = Color(0xFFFF8F3A)
 private val RoyalBlue = Color(0xFF003B99)
 
-private val VOLUME_OPTIONS = listOf(100, 200, 300, 400, 500)
-private val REGISTER_DRINKS = listOf(DrinkType.WATER, DrinkType.LABAN, DrinkType.MILK, DrinkType.FRESH_JUICE, DrinkType.HERBAL)
+private val VOLUME_OPTIONS = listOf(100, 150, 200, 250, 300, 350)
+private val REGISTER_DRINKS = listOf(
+    DrinkType.WATER, DrinkType.HERBAL, DrinkType.MILK, DrinkType.LABAN,
+    DrinkType.FRESH_JUICE, DrinkType.COFFEE_ESPRESSO, DrinkType.ENERGY_DRINK
+)
 
 private fun cropCenter(src: Bitmap, fraction: Float = 0.6f): Bitmap {
     val w = (src.width * fraction).toInt().coerceIn(1, src.width)
@@ -173,10 +183,12 @@ fun CameraVerificationScreen(
     title: String = "وثّق شرب الماء بالكاميرا",
     defaultAmountMl: Int = 400,
     savedCups: List<SavedCupSignature> = emptyList(),
+    volumeUnit: VolumeUnit = VolumeUnit.ML,
     cloudAiEnabled: Boolean = false,
     geminiApiKey: String = "",
     onCloudAiEnabledChange: (Boolean) -> Unit = {},
     onGeminiKeyChange: (String) -> Unit = {},
+    onDrinkTypeSelected: (String) -> Unit = {},
     onRegisterCup: (name: String, volumeMl: Int, drinkTypeName: String, barcodeOrKeyword: String) -> Unit = { _, _, _, _ -> },
     onDeleteCup: (Long) -> Unit = {},
     onVerified: (Int, Boolean) -> Unit
@@ -210,8 +222,8 @@ fun CameraVerificationScreen(
         Spacer(Modifier.height(12.dp))
         if (hasPermission) {
             CameraContent(
-                defaultAmountMl, savedCups, cloudAiEnabled, geminiApiKey,
-                onCloudAiEnabledChange, onGeminiKeyChange, onRegisterCup, onDeleteCup, onVerified
+                defaultAmountMl, savedCups, volumeUnit, cloudAiEnabled, geminiApiKey,
+                onCloudAiEnabledChange, onGeminiKeyChange, onDrinkTypeSelected, onRegisterCup, onDeleteCup, onVerified
             )
         } else {
             Column(
@@ -242,10 +254,12 @@ fun CameraVerificationScreen(
 private fun CameraContent(
     defaultAmountMl: Int,
     savedCups: List<SavedCupSignature>,
+    volumeUnit: VolumeUnit,
     cloudAiEnabled: Boolean,
     geminiApiKey: String,
     onCloudAiEnabledChange: (Boolean) -> Unit,
     onGeminiKeyChange: (String) -> Unit,
+    onDrinkTypeSelected: (String) -> Unit,
     onRegisterCup: (String, Int, String, String) -> Unit,
     onDeleteCup: (Long) -> Unit,
     onVerified: (Int, Boolean) -> Unit
@@ -270,8 +284,9 @@ private fun CameraContent(
     var showCloud by remember { mutableStateOf(false) }
     var pendingKey by remember { mutableStateOf("") }
     var pinnedCup by remember { mutableStateOf<SavedCupSignature?>(null) }
+    var customVolText by remember { mutableStateOf("") }
     var selectedAmount by remember {
-        mutableIntStateOf(VOLUME_OPTIONS.minByOrNull { abs(it - defaultAmountMl) } ?: 400)
+        mutableIntStateOf(VOLUME_OPTIONS.minByOrNull { abs(it - defaultAmountMl) } ?: 200)
     }
 
     // Fresh snapshots for the (set-once) analyzer.
@@ -422,13 +437,19 @@ private fun CameraContent(
 
     fun onVerifyClick() {
         val now = System.currentTimeMillis()
+        val cloudMode = cloudAiEnabled && geminiApiKey.isNotBlank()
         when {
-            pinnedCup != null -> { overrideVerify = false; state = VerifyState.Verified(pinnedCup!!.name) }
+            // A real check must have passed: live lock (local hint or saved cup) within 2s.
             isTargetLocked || (lastValidLabel != null && now - lastValidTs < 2000) -> {
                 overrideVerify = false
                 state = VerifyState.Verified(lastValidLabel ?: "cup")
             }
-            else -> capture()
+            // Cloud mode: the cloud is the judge — check this frame now.
+            cloudMode -> capture()
+            // Local mode, nothing locked → do NOT record; tell the user to aim first.
+            else -> state = VerifyState.Error(
+                tr(lang, "يرجى توجيه الكاميرا نحو الكأس أو العبوة أولاً ⚠️", "Point the camera at the cup or bottle first ⚠️")
+            )
         }
     }
 
@@ -470,74 +491,17 @@ private fun CameraContent(
     }
 
     if (showRegister) {
-        var chosenName by remember { mutableStateOf("") }
-        var customName by remember { mutableStateOf("") }
-        var drink by remember { mutableStateOf(DrinkType.WATER) }
-        val options = listOf(
-            tr("عبوة مياه", "Water bottle"),
-            tr("مطارة", "Flask"),
-            tr("عبوة لبن", "Laban bottle"),
-            tr("كوب أعشاب", "Herbal cup")
-        )
-        val finalName = customName.trim().ifBlank { chosenName }
-        AlertDialog(
-            onDismissRequest = { showRegister = false; pendingKey = "" },
-            confirmButton = {
-                TextButton(
-                    enabled = finalName.isNotBlank(),
-                    onClick = {
-                        onRegisterCup(finalName, selectedAmount, drink.name, pendingKey)
-                        showRegister = false
-                        pendingKey = ""
-                        overrideVerify = false
-                        state = VerifyState.Verified(finalName)
-                    }
-                ) { Text(tr("حفظ وتوثيق ✓", "Save & verify ✓")) }
-            },
-            dismissButton = { TextButton(onClick = { showRegister = false; pendingKey = "" }) { Text(tr("إلغاء", "Cancel")) } },
-            title = { Text(tr("تعريف كأسي/عبوتي ⭐", "Register my cup/bottle ⭐")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("اختر اسماً (الحجم: $selectedAmount مل):", "Pick a name (volume: $selectedAmount ml):"))
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        options.forEach { opt ->
-                            FilterChip(
-                                selected = chosenName == opt && customName.isBlank(),
-                                onClick = { chosenName = opt; customName = "" },
-                                label = { Text(opt) }
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = customName,
-                        onValueChange = { customName = it },
-                        singleLine = true,
-                        label = { Text(tr("أو اكتب اسماً مخصصاً (اختياري)", "Or type a custom name (optional)")) },
-                        placeholder = { Text(tr("مثال: كوب المكتب", "e.g. Office mug")) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(tr("نوع المشروب:", "Drink type:"))
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        REGISTER_DRINKS.forEach { dt ->
-                            FilterChip(
-                                selected = drink == dt,
-                                onClick = { drink = dt },
-                                label = { Text("${dt.emoji} ${tr(lang, dt.label, dt.labelEn)}") }
-                            )
-                        }
-                    }
-                    if (pendingKey.isNotBlank()) {
-                        Text(
-                            tr("تم رصد معرّف للعبوة ✓ (سيُتعرّف عليها تلقائياً لاحقاً)", "Label/barcode captured ✓ (auto-recognized next time)"),
-                            style = MaterialTheme.typography.bodySmall, color = VeroGreen
-                        )
-                    } else {
-                        Text(
-                            tr("لم يُرصد باركود/نص — سيُحفظ بالاسم فقط وتختاره من الشريط.", "No barcode/text found — saved by name; pick it from the bar."),
-                            style = MaterialTheme.typography.bodySmall, color = Color.Gray
-                        )
-                    }
-                }
+        RegisterCupDialog(
+            selectedAmount = selectedAmount,
+            volumeUnit = volumeUnit,
+            lang = lang,
+            pendingKey = pendingKey,
+            onVolumeChange = { selectedAmount = it },
+            onCancel = { showRegister = false; pendingKey = "" },
+            onSave = { name, vol, drinkName ->
+                onRegisterCup(name, vol, drinkName, pendingKey)
+                showRegister = false
+                pendingKey = ""
             }
         )
     }
@@ -749,11 +713,17 @@ private fun CameraContent(
                 FilterChip(
                     selected = pinnedCup?.id == cup.id,
                     onClick = {
+                        // Tapping a saved cup ONLY selects it as the current target (volume + drink
+                        // type). It never records a drink — that still needs a real camera check.
                         pinnedCup = if (pinnedCup?.id == cup.id) null else cup
-                        if (pinnedCup != null) selectedAmount = cup.defaultVolumeMl
+                        if (pinnedCup != null) {
+                            selectedAmount = cup.defaultVolumeMl
+                            customVolText = ""
+                            onDrinkTypeSelected(cup.drinkTypeName)
+                        }
                     },
                     enabled = verified == null,
-                    label = { Text("⭐ ${cup.name} ${cup.defaultVolumeMl}") },
+                    label = { Text("⭐ ${cup.name} ${formatVolume(cup.defaultVolumeMl, volumeUnit, lang)}") },
                     colors = FilterChipDefaults.filterChipColors(selectedContainerColor = VeroGreen, selectedLabelColor = Color.Black, labelColor = Color.White)
                 )
             }
@@ -762,19 +732,32 @@ private fun CameraContent(
 
     Spacer(Modifier.height(12.dp))
 
-    Text(tr("كم ستشرب؟ (مل)", "How much? (ml)"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+    Text(tr("كم ستشرب؟", "How much?"), color = Color.White, style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(6.dp))
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         VOLUME_OPTIONS.forEach { ml ->
             FilterChip(
-                selected = selectedAmount == ml,
-                onClick = { selectedAmount = ml },
+                selected = customVolText.isBlank() && selectedAmount == ml,
+                onClick = { selectedAmount = ml; customVolText = "" },
                 enabled = verified == null,
-                label = { Text("$ml") },
+                label = { Text(formatVolume(ml, volumeUnit, lang)) },
                 colors = FilterChipDefaults.filterChipColors(selectedContainerColor = VeroCyan, selectedLabelColor = Color.Black, labelColor = Color.White)
             )
         }
     }
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = customVolText,
+        onValueChange = { v ->
+            customVolText = v.filter { it.isDigit() }.take(4)
+            customVolText.toIntOrNull()?.let { if (it in 50..2500) selectedAmount = it }
+        },
+        singleLine = true,
+        enabled = verified == null,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        label = { Text(tr("حجم مخصص (مل)", "Custom (ml)")) },
+        modifier = Modifier.fillMaxWidth()
+    )
 
     Spacer(Modifier.height(12.dp))
 
@@ -783,19 +766,14 @@ private fun CameraContent(
         enabled = state !is VerifyState.Analyzing && verified == null,
         modifier = Modifier.fillMaxWidth().height(58.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = if (isTargetLocked || pinnedCup != null) VeroGreen else Color.White, contentColor = Color(0xFF0A1118))
+        colors = ButtonDefaults.buttonColors(containerColor = if (isTargetLocked) VeroGreen else Color.White, contentColor = Color(0xFF0A1118))
     ) {
         Text(
-            if (isTargetLocked || pinnedCup != null) tr("توثيق الشرب ✓", "Verify drink ✓") else tr("📷 توثيق الشرب ($selectedAmount مل)", "📷 Verify drink ($selectedAmount ml)"),
+            if (isTargetLocked) tr("توثيق الشرب ✓", "Verify drink ✓")
+            else tr("📷 توثيق الشرب (${formatVolume(selectedAmount, volumeUnit, lang)})", "📷 Verify drink (${formatVolume(selectedAmount, volumeUnit, lang)})"),
             fontSize = 17.sp, fontWeight = FontWeight.Bold
         )
     }
-
-    OutlinedButton(
-        onClick = { captureForRegister() },
-        modifier = Modifier.fillMaxWidth().height(48.dp).padding(top = 8.dp),
-        shape = RoundedCornerShape(18.dp)
-    ) { Text(tr("+ تعريف كأسي/عبوتي ⭐", "+ Register my cup/bottle ⭐"), color = Color.White) }
 
     if (failedAttempts >= 3 && verified == null) {
         Spacer(Modifier.height(8.dp))
@@ -806,6 +784,81 @@ private fun CameraContent(
             colors = ButtonDefaults.buttonColors(containerColor = VeroOrange, contentColor = Color.White)
         ) { Text(tr("تأكيد بالتعهد 🤝 (تجاوز)", "Confirm by promise 🤝 (bypass)"), fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RegisterCupDialog(
+    selectedAmount: Int,
+    volumeUnit: VolumeUnit,
+    lang: Language,
+    pendingKey: String,
+    onVolumeChange: (Int) -> Unit,
+    onCancel: () -> Unit,
+    onSave: (name: String, volumeMl: Int, drinkTypeName: String) -> Unit
+) {
+    val containers = listOf(
+        tr("كأس شفاف", "Clear glass"), tr("كأس زجاج", "Glass"), tr("عبوة بلاستيك", "Plastic bottle"),
+        tr("زجاجة", "Bottle"), tr("علبة / كرتون", "Carton"), tr("مج / Mug", "Mug"), tr("مطارة رياضية", "Sports flask")
+    )
+    var container by remember { mutableStateOf(containers.first()) }
+    var drink by remember { mutableStateOf(DrinkType.WATER) }
+    var customName by remember { mutableStateOf("") }
+    var volText by remember { mutableStateOf(selectedAmount.toString()) }
+    val vol = volText.toIntOrNull()?.coerceIn(50, 2500) ?: selectedAmount
+    val drinkLabel = tr(lang, drink.label, drink.labelEn)
+    val finalName = customName.trim().ifBlank { "$container - $drinkLabel" }
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        confirmButton = {
+            TextButton(onClick = { onVolumeChange(vol); onSave(finalName, vol, drink.name) }) {
+                Text(tr("حفظ الكوب ⭐", "Save cup ⭐"))
+            }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text(tr("إلغاء", "Cancel")) } },
+        title = { Text(tr("تعريف كأسي/عبوتي ⭐", "Register my cup/bottle ⭐")) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text(tr("نوع الوعاء:", "Container type:"), fontWeight = FontWeight.SemiBold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    containers.forEach { c ->
+                        FilterChip(selected = container == c, onClick = { container = c }, label = { Text(c) })
+                    }
+                }
+                Text(tr("نوع المشروب:", "Drink type:"), fontWeight = FontWeight.SemiBold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    REGISTER_DRINKS.forEach { dt ->
+                        FilterChip(selected = drink == dt, onClick = { drink = dt }, label = { Text("${dt.emoji} ${tr(lang, dt.label, dt.labelEn)}") })
+                    }
+                }
+                OutlinedTextField(
+                    value = volText,
+                    onValueChange = { v -> volText = v.filter { it.isDigit() }.take(4) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = { Text(tr("الحجم (مل)", "Volume (ml)")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = customName,
+                    onValueChange = { customName = it },
+                    singleLine = true,
+                    label = { Text(tr("اسم مخصص للوعاء أو المشروب (اختياري)...", "Custom name (optional)...")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    if (pendingKey.isNotBlank()) tr("تم رصد معرّف للعبوة ✓ (تعرّف تلقائي لاحقاً)", "Label/barcode captured ✓ (auto-recognized)")
+                    else tr("لم يُرصد باركود/نص — يُحفظ بالاسم وتختاره من الشريط.", "No barcode/text — saved by name; pick it from the bar."),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (pendingKey.isNotBlank()) VeroGreen else Color.Gray
+                )
+            }
+        }
+    )
 }
 
 @Composable

@@ -21,7 +21,8 @@ enum class DrinkType(
     COCKTAIL("كوكتيل", "Cocktail", "🍹", 0.90f, breaksFast = true),
     LABAN("لبن", "Laban", "🥛", 1.0f, breaksFast = true),
     MILK("حليب", "Milk", "🥛", 1.0f, breaksFast = true),
-    FRESH_JUICE("عصير فريش", "Fresh juice", "🧃", 0.95f, breaksFast = true);
+    FRESH_JUICE("عصير فريش", "Fresh juice", "🧃", 0.95f, breaksFast = true),
+    ENERGY_DRINK("مشروب طاقة/رياضي", "Energy/sports drink", "⚡", 0.90f, breaksFast = true);
 
     fun label(lang: Language): String = if (lang == Language.EN) labelEn else label
 

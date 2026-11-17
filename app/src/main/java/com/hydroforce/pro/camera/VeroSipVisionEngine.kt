@@ -18,25 +18,30 @@ import java.nio.channels.FileChannel
  */
 object VeroSipVisionEngine {
 
-    /** Comfortable acceptance list — any of these (ML Kit) at >= [ACCEPT_THRESHOLD] locks the frame. */
+    /** Strong acceptance — any of these (ML Kit) at >= [ACCEPT_THRESHOLD] locks the frame. */
     val ACCEPT_HINTS = setOf(
         "water", "bottle", "water bottle", "plastic bottle", "glass", "drinking glass", "cup", "mug",
         "teacup", "coffee cup", "coffeecup", "drink", "liquid", "fluid", "beverage", "drinkware",
-        "tableware", "glassware", "pitcher", "tumbler", "teapot", "tea", "coffee", "jug", "flask",
-        "milk", "dairy", "dairy product", "yogurt", "ayran", "juice", "soft drink", "packaged goods",
-        "carton", "plastic", "cylinder", "container", "aqua"
+        "glassware", "pitcher", "tumbler", "teapot", "tea", "coffee", "jug", "flask",
+        "milk", "dairy", "dairy product", "yogurt", "ayran", "juice", "soft drink", "aqua"
     )
     const val ACCEPT_THRESHOLD = 0.28f
 
-    /** Narrow block list — only explicit non-drink objects, at high confidence, and only when there
-     * is no barcode and no drink text (those override the block). */
-    val BLOCK_OBJECTS = setOf(
-        "cigarette", "electronic cigarette", "vape", "tobacco", "ashtray", "lighter",
-        "mobile phone", "cell phone", "keyboard", "mouse", "laptop"
-    )
-    const val BLOCK_THRESHOLD = 0.58f
+    /** Ambiguous words that only count WITH a liquid/drink word in the same frame (baskets, boxes…). */
+    val CONDITIONAL_HINTS = setOf("tableware", "container", "cylinder", "plastic", "packaged goods", "carton")
+    val LIQUID_CONTEXT = setOf("water", "liquid", "drink", "beverage", "milk", "aqua", "juice", "dairy", "fluid")
 
-    private val RELEVANT = ACCEPT_HINTS + BLOCK_OBJECTS
+    /** Instant block — smoking / electronics / furniture / baskets / fabrics / surfaces, at >= 0.38. */
+    val BLOCK_OBJECTS = setOf(
+        "basket", "hamper", "laundry", "wicker", "wood", "plywood", "hardwood", "furniture", "chair",
+        "table", "couch", "sofa", "pillow", "cushion", "bed", "textile", "fabric", "linen", "towel",
+        "cloth", "floor", "flooring", "tile", "wall", "door", "window", "television", "monitor",
+        "laptop", "keyboard", "mouse", "mobile phone", "cell phone", "remote", "cigarette",
+        "electronic cigarette", "vape", "tobacco", "ashtray", "lighter", "shoe", "bag", "handbag"
+    )
+    const val BLOCK_THRESHOLD = 0.38f
+
+    private val RELEVANT = ACCEPT_HINTS + CONDITIONAL_HINTS + BLOCK_OBJECTS
 
     /** Outcome of the merged decision. */
     data class Decision(
@@ -122,11 +127,16 @@ object VeroSipVisionEngine {
         if (tflite?.detect(bitmap) is OptionalTfliteModel.CocoResult.Accept) {
             return Decision(locked = true, rejected = false, label = "cup", savedName = null)
         }
-        // 6. Any comfortable ML Kit hint.
+        // 6a. Strong ML Kit hint.
         lower.firstOrNull { it.first in ACCEPT_HINTS && it.second >= ACCEPT_THRESHOLD }?.let {
             return Decision(locked = true, rejected = false, label = it.first, savedName = null)
         }
-        // 7. Narrow block only when nothing drink-like is present.
+        // 6b. Ambiguous word (tableware/container/plastic…) only with a liquid/drink word present.
+        val hasLiquid = lower.any { it.first in LIQUID_CONTEXT && it.second >= ACCEPT_THRESHOLD }
+        lower.firstOrNull { it.first in CONDITIONAL_HINTS && it.second >= ACCEPT_THRESHOLD }?.let {
+            if (hasLiquid) return Decision(locked = true, rejected = false, label = it.first, savedName = null)
+        }
+        // 7. Block furniture/baskets/fabrics/electronics/smoking when nothing drink-like is present.
         val hasDrinkText = ocrOutcome?.accept != null
         if (code == null && !hasDrinkText &&
             lower.any { it.first in BLOCK_OBJECTS && it.second >= BLOCK_THRESHOLD }
